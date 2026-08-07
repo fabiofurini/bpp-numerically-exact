@@ -1,6 +1,6 @@
 # Usage: calling the solver
 
-[← Back to README](../README.md) · [← Build & Compile](BUILD.md)
+[← Back to README](../README.md) · [← Compile](COMPILE.md)
 
 ## Command syntax
 

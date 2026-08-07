@@ -1,29 +1,6 @@
-# Build & Compile
+# Compile
 
-[← Back to README](../README.md)
-
-## Code layout
-
-```
-include/bpp/     Public headers (one class/module per file)
-src/
-  core/          Instance, Pattern, Solution: validated domain model
-  io/            Instance reader, solution writer
-  cuts/          SR3 (triplet) cut separation
-  pricing/       Pricing oracles: label-setting DPs (root, SR3-aware,
-                 branch-aware), scaled-integer variants for Algorithm 1
-  master/        Restricted master problem backends: CplexRmp, GurobiRmp,
-                 SoplexRmp (rational), MasterRmp (backend-agnostic wrapper),
-                 column_generation.cpp (the Algorithm 1 driver),
-                 safe_bound.cpp (exact GMP rational certification)
-  search/        Ryan–Foster branch-and-price tree (best-bound and
-                 depth-first strategies), diving heuristic
-  solver/        Greedy fallback heuristics (best-fit-decreasing, etc.)
-  cli/           bpp-solve command-line entry point
-tests/           bpp-unit-tests / bpp-integration-tests / bpp-regression-tests
-docs/            Documentation (this file, usage, input/output reference,
-                 engineering status and design notes)
-```
+[← Back to README](../README.md) · [← Code](CODE.md)
 
 ## Dependencies
 

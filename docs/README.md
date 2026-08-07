@@ -2,7 +2,8 @@
 
 ## User-facing
 
-- [`BUILD.md`](BUILD.md): code layout, dependencies, and build instructions.
+- [`CODE.md`](CODE.md): repository layout, what implements what.
+- [`COMPILE.md`](COMPILE.md): dependencies and build instructions.
 - [`USAGE.md`](USAGE.md): how to invoke `bpp-solve`, modes and options.
 - [`INPUT.md`](INPUT.md): instance file format.
 - [`OUTPUT.md`](OUTPUT.md): output fields, with worked examples.
