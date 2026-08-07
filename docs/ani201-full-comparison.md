@@ -51,6 +51,29 @@ instance difficulty, while this solver's default path resolves nearly
 everything through the same bounded root mechanism (SR3 + SAFE_MIP_SOL)
 regardless of difficulty, so its cost stays roughly constant.
 
+## Which route actually certifies each instance: SR3+LP alone, or the Section 4 MIP?
+
+Classified by inspecting each instance's `safe_bound` field: an exact
+integer (denominator 1, e.g. `66`) means the Section 4 MIP-based
+certification (Baldacci et al. 2023, `try_safe_mip_certification`)
+supplied the final proof; a genuine fraction (e.g.
+`650000002437171/10000000000000`) means the LP relaxation plus SR3 cuts
+alone already closed the gap, with no MIP step needed.
+
+| Route | Instances |
+|---|---|
+| SR3 + LP relaxation alone | **26/50** |
+| Section 4 MIP required | **24/50** |
+
+Just under half of the ANI-201 sample does **not** close with cutting
+planes and the LP bound alone, even with SR3 active — the combinatorial
+MIP step is not a rare fallback for pathological cases, it is needed on
+essentially half of this benchmark family at the root. This is a direct,
+quantitative confirmation of why implementing it (rather than relying on
+LP/SR3 alone, or on branching) was the change that took the full sample
+from 44/50 to 50/50 certified (see `docs/STATUS.md`'s "SAFE_MIP_SOL
+implemented" checkpoint).
+
 ## Full results
 
 | Instance | Official (s) | Ours (s) | Ratio | UB | Certified |
