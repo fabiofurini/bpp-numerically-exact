@@ -1,0 +1,33 @@
+name: build-and-test
+
+# Only the portable configuration (no CPLEX/SoPlex) runs in CI, per
+# PIANO_REFACTORING_BPP.md phase 8.7: CPLEX is a mandatory but proprietary
+# user-supplied dependency and cannot be installed on a public runner. The
+# CPLEX+SoPlex build and the ANI benchmark comparisons are a documented
+# local-only workflow (README.md, docs/STATUS.md).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  portable-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DBPP_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build -j2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Check no absolute personal paths in CMakeLists
+        run: |
+          if grep -nE "/home/[a-zA-Z0-9_-]+" CMakeLists.txt; then
+            echo "Absolute personal path found in CMakeLists.txt"; exit 1
+          fi
+      - name: Check no vendor CPLEX/Gurobi headers are tracked
+        run: |
+          if git ls-files | grep -Ei "legacy/include/(cplex|cpxconst|gurobi_c)\.h$"; then
+            echo "Proprietary vendor header is tracked by git"; exit 1
+          fi

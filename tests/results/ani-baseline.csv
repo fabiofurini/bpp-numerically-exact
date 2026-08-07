@@ -1,0 +1,3 @@
+family,instance,items,status,ub,lp_bound,root_nodes,total_columns,exact_dp_calls,triplets,time_seconds
+ANI201,201_2500_NR_0.txt,201,101,66,65.000004618703,0,3725,390,10,2.188517
+ANI402,402_10000_NR_0.txt,402,101,133,132.000000024113,18,9472,988,50,30.072316

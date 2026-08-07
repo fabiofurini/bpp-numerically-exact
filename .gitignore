@@ -1,0 +1,49 @@
+/build/
+/build-*/
+*.o
+*.a
+*.so
+*.lp
+*.log
+*.tmp
+
+# bpp-solve-legacy writes these accumulating result logs into its current
+# working directory as a side effect of every run.
+/info_*.txt
+
+# The docs/legacy-info/ raw execution logs (both the accumulating info_*.txt
+# copies and the ani-baseline-info_*.txt snapshots) embed absolute local
+# filesystem paths (instance/parameter file paths) as literal data in every
+# row -- not a secret, but personal directory structure that has no reason
+# to be in a public repository (2026-08-07 decision). Kept locally only;
+# docs/legacy-info/README.md explains what they are and how to regenerate
+# them. The normalized, path-free comparison data lives in tests/results/
+# as CSV instead.
+/docs/legacy-info/*.txt
+
+# Same reasoning for the handful of tests/results/*.csv snapshots whose
+# new_log column recorded an absolute local log path (2026-08-07): excluded
+# individually rather than the whole directory, since most CSVs here are
+# already path-free and worth keeping tracked as reproducible comparison
+# data.
+/tests/results/ani201-10-post-refactor.csv
+/tests/results/ani201-5-post-dp-fix.csv
+/tests/results/ani402-5-final.csv
+/tests/results/ani402-5-final-perf.csv
+/tests/results/ani201-5-root-soplex-post-refactor.csv
+/tests/results/ani201-15-final.csv
+/tests/results/ani-5-latest.csv
+/tests/results/ani201-15-final-perf.csv
+/tests/results/ani201-10-post-perf-fix.csv
+
+# The entire historical reference implementation (bpp-solve-legacy): never
+# published, per the co-authors' decision (2026-08-07). It stays on disk as
+# a local regression oracle only -- required to build/run bpp-solve-legacy
+# for comparison, never tracked or pushed. This also covers the proprietary
+# IBM CPLEX / Gurobi vendor SDK headers under legacy/include/, which have no
+# redistribution license and must never be committed regardless.
+/legacy/
+
+# Reproducible comparison data is kept as CSV; per-run logs are disposable.
+/tests/results/*-logs/
+/tests/results/.~lock.*

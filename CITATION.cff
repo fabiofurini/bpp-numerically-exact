@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite both the paper it implements and,
+  optionally, this repository.
+title: >-
+  bpp-numerically-exact: an open implementation of the numerically exact
+  branch-price-and-cut algorithm for the classical Bin-Packing Problem
+type: software
+authors:
+  - family-names: Furini
+    given-names: Fabio
+preferred-citation:
+  type: article
+  title: "A Numerically Exact Algorithm for the Bin-Packing Problem"
+  authors:
+    - family-names: Baldacci
+      given-names: Roberto
+    - family-names: Coniglio
+      given-names: Stefano
+    - family-names: Cordeau
+      given-names: Jean-Francois
+    - family-names: Furini
+      given-names: Fabio
+  journal: "INFORMS Journal on Computing"
+  year: 2023
+  repository-code: "https://github.com/stefanoconiglio/A-Numerically-Exact-Algorithm-for-the-Bin-Packing-Problem"

@@ -1,0 +1,34 @@
+This project's own source code is licensed under the MIT License (see
+LICENSE). It depends on, but does not redistribute, the following
+third-party software:
+
+IBM ILOG CPLEX Optimization Studio
+  Copyright IBM Corporation. Proprietary; users must install and license
+  CPLEX themselves. No CPLEX binaries, headers, or license files are
+  included in this repository. CMake requires CPLEX_ROOT and fails with an
+  explicit message if CPLEX is not found.
+
+Gurobi Optimizer
+  Copyright Gurobi Optimization, LLC. Proprietary; users must install and
+  license Gurobi themselves. No Gurobi binaries, headers, or license files
+  are included in this repository. Optional: an alternative floating-point
+  LP backend to CPLEX (see include/bpp/gurobi_rmp.hpp), enabled via
+  -DBPP_ENABLE_GUROBI=ON -DGUROBI_ROOT=/path/to/gurobiNNN/linux64. CMake
+  fails with an explicit message if Gurobi is not found there.
+
+SoPlex
+  Copyright Zuse Institute Berlin (ZIB). Distributed under the Apache
+  License 2.0 (SoPlex >= 6) or the ZIB Academic License (older releases);
+  see the SoPlex distribution's own COPYING file for the version actually
+  used. Not redistributed by this repository; users build or install SoPlex
+  separately and point CMake at it (SOPLEX_BUILD_ROOT).
+
+GNU Multiple Precision Arithmetic Library (GMP)
+  Copyright the GMP development team. Distributed under the GNU LGPL v3
+  (or later) / GPL v2 (or later), dual-licensed. Used as a system
+  dependency, not redistributed.
+
+The historical reference implementation kept locally under legacy/ (used
+only to reproduce the baseline for regression comparisons, never part of
+the public solver) is not covered by this project's MIT license and is
+excluded from version control. See legacy/include/README.md.
