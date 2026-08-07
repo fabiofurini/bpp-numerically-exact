@@ -18,7 +18,6 @@
 - [`legacy-info/`](legacy-info/): preserved long histories and the two-row ANI baseline exports.
 - [`ani-comparison-report.md`](ani-comparison-report.md): ANI comparison methodology and current results.
 - [`paper-comparison.md`](paper-comparison.md): recalculation against the paper's Tables 1–3.
-- [`baseline.md`](baseline.md): initial solver baseline and smoke checks.
 
 Generated build directories and per-run logs are intentionally not part of the
 source tree. Recreate them with the commands in the top-level README.

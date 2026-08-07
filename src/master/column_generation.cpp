@@ -746,16 +746,17 @@ ColumnGenerationResult solve_root_column_generation_algorithm1(
 #ifdef BPP_HAS_CPLEX
   // Legacy SAFE_MIP_SOL (see try_safe_mip_certification's doc comment):
   // a last-resort exact certification, tried only when the standard LP/
-  // dual route above did not already certify. Opt-in via options.populate
-  // (--populate), matching this project's "default = paper-exact, extras
-  // opt-in" convention -- the enumeration step it depends on
-  // (populate_root_columns) has no internal wall-clock bound, only a
-  // column-count cap, so it is not safe to run unconditionally on every
-  // default --root-cg call (measured: can run past 90s on a hard instance
-  // before that cap is ever reached). A no-op (single ceil_bins check,
-  // immediate return) whenever the standard route already certified, so
-  // this costs nothing when it is not needed.
-  if (options.populate && result.converged && options.branching.constraints().empty()) {
+  // dual route above did not already certify. Unconditional (not gated on
+  // options.populate) as of the enumeration rewrite onto the dominance-
+  // pruned pricing DP: every historical parameter file found runs this by
+  // default (it is not a tunable extra, it is Sec. 4 of the paper itself),
+  // and it is now bounded and fast (measured 5.6-9.7s on every instance
+  // that previously needed it, full ANI-201 sample) rather than the
+  // unbounded DFS enumeration that made it unsafe to run unconditionally
+  // before that fix. A no-op (single ceil_bins check, immediate return)
+  // whenever the standard route already certified, so this costs nothing
+  // on the common case.
+  if (result.converged && options.branching.constraints().empty()) {
     ColumnGenerationOptions mip_options = options;
     mip_options.sr3_cuts = active_cuts;
     try_safe_mip_certification(instance, mip_options, result);

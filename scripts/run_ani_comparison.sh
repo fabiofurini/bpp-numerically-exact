@@ -4,14 +4,19 @@ set -u
 # Compare historical and refactored BPP commands on every ANI-201/ANI-402
 # instance. These are the repository's 200/400-item families.
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-DATA_ROOT=${DATA_ROOT:-"$ROOT/../../BPP_BRASIL/2023.0399/data/CSP"}
-OLD_SOLVER=${OLD_SOLVER:-"${OLD_BUILD_ROOT:-/tmp/bpp-numerically-exact-cleanup-20260806/build-cplex-release}/bpp-solve-legacy"}
+# No public defaults for either of these: point them at your own local
+# copies of the ANI-201/ANI-402 instance data and the historical archive's
+# build (never published, see legacy/ and .gitignore).
+DATA_ROOT=${DATA_ROOT:?"set DATA_ROOT to your local ANI-201/ANI-402 data directory"}
+OLD_SOLVER=${OLD_SOLVER:?"set OLD_SOLVER to your local historical-archive bpp-solve-legacy build"}
 NEW_SOLVER=${NEW_SOLVER:-"$ROOT/build-cplex-soplex/bpp-solve"}
 NEW_MODE=${NEW_MODE:-legacy-root-cg}
 NEW_MAX_ITERATIONS=${NEW_MAX_ITERATIONS:-20}
 REUSE_OLD_LOGS=${REUSE_OLD_LOGS:-0}
 REUSE_NEW_LOGS=${REUSE_NEW_LOGS:-0}
-OLD_PARAMS=${OLD_PARAMS:-"$ROOT/../ARCHIVIO_CODICE/SETUP_BPP_CODE/PARAM_FILES_BPP/param_test_BPP_ANI_no_SOPLEX_no_POP.txt"}
+# No public default: point this at your own local copy of the historical
+# archive's parameter file (never published, see legacy/ and .gitignore).
+OLD_PARAMS=${OLD_PARAMS:?"set OLD_PARAMS to your local historical-archive parameter file"}
 TIME_LIMIT=${TIME_LIMIT:-120}
 OUTPUT=${OUTPUT:-"$ROOT/tests/results/ani-comparison.csv"}
 LOG_DIR=${LOG_DIR:-"$ROOT/tests/results/ani-logs"}

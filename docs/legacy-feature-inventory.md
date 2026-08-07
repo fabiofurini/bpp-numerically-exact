@@ -1,9 +1,10 @@
 # Legacy feature inventory
 
 This document is the migration contract for the classical BPP path in the
-historical source tree at `../ARCHIVIO_CODICE/SETUP_BPP_CODE/`. The requirement
-is functional equivalence: no BPP feature listed here may be silently dropped,
-approximated or replaced during the refactor.
+historical source tree (the local-only reference implementation, never
+published -- see `legacy/` and `.gitignore`). The requirement is
+functional equivalence: no BPP feature listed here may be silently
+dropped, approximated or replaced during the refactor.
 
 ## Entry points and configuration
 

@@ -5,7 +5,7 @@ before changing code.
 
 ## Workspace and scope
 
-- Project: `/home/fabio/Dropbox/AA_WORKING/BPP_BP_CODE/BPP_ITALIA/bpp-numerically-exact`
+- Project: this repository's root directory.
 - Scope: classical one-dimensional BPP only.
 - The target behavior is the historical BPP code and the base BCCF algorithm
   in Baldacci et al. (2023). Do not add unrelated variants or new features.

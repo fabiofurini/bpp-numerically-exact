@@ -2,7 +2,9 @@
 
 ## Completed
 
-- New project created independently of `ARCHIVIO_CODICE`.
+- New project created independently of the historical archive (a
+  local-only, never-published reference implementation, see `legacy/` and
+  `.gitignore`).
 - Portable CMake build and install target.
 - RAII BPP instance model with validation of capacity and weights.
 - Strict minimal instance reader (`n capacity`, followed by `n` weights).
@@ -746,8 +748,9 @@ normalization tied to bookkeeping this codebase does not have: this uses
 the simpler, standard rule of advancing the center to the newest
 misprice-validated real dual instead.
 
-Grepping every parameter file under `ARCHIVIO_CODICE/.../PARAM_FILES_BPP(S)`
-(including every `paper_v*` variant) found `PARAM_SMOOTH 0` universally --
+Grepping every parameter file in the historical archive's `PARAM_FILES_BPP(S)`
+directory (local-only, see above; including every `paper_v*` variant)
+found `PARAM_SMOOTH 0` universally --
 this feature was never exercised in producing the paper's reported results.
 Per explicit instruction, it therefore stays **off by default**
 (`ColumnGenerationOptions::dual_stabilization = false`), exposed only via
