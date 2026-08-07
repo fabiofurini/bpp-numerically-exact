@@ -8,8 +8,9 @@ Algorithm 1's scaled-integer-dual two-phase column generation, SR3
 cutting planes, Ryan–Foster branch-and-price, and the paper's Section 4
 MIP-based exact certification step.
 
-**Project site (build instructions, usage, input/output reference):**
-<https://fabiofurini.github.io/bpp-numerically-exact/>
+**Documentation:** [Build & Compile](docs/BUILD.md) ·
+[Usage](docs/USAGE.md) · [Input format](docs/INPUT.md) ·
+[Output format](docs/OUTPUT.md)
 
 This is an independent, clean-room reimplementation, not the paper's own
 code. The official code and data are published by the authors at

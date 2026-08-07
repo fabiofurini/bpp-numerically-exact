@@ -1,5 +1,14 @@
 # Documentation map
 
+## User-facing
+
+- [`BUILD.md`](BUILD.md): code layout, dependencies, and build instructions.
+- [`USAGE.md`](USAGE.md): how to invoke `bpp-solve`, modes and options.
+- [`INPUT.md`](INPUT.md): instance file format.
+- [`OUTPUT.md`](OUTPUT.md): output fields, with worked examples.
+
+## Engineering / development history
+
 - [`STATUS.md`](STATUS.md): refactoring checkpoint, verified work and remaining gaps.
 - [`CONTINUATION_STATE.md`](CONTINUATION_STATE.md): machine-readable handoff for continuing the refactoring.
 - [`legacy-feature-inventory.md`](legacy-feature-inventory.md): migration contract against the old BPP code.
