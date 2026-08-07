@@ -1,9 +1,18 @@
 # Numerically Exact Bin Packing
 
-Open-source implementation of the numerically safe branch-price-and-cut algorithm for the one-dimensional Bin-Packing Problem described by Baldacci et al. (2023).
+A numerically exact branch-price-and-cut solver for the classical
+one-dimensional Bin-Packing Problem, implementing the algorithm described
+by Baldacci, Coniglio, Cordeau, Furini, *"A Numerically Exact Algorithm
+for the Bin-Packing Problem"* (INFORMS Journal on Computing, 2023):
+Algorithm 1's scaled-integer-dual two-phase column generation, SR3
+cutting planes, Ryan–Foster branch-and-price, and the paper's Section 4
+MIP-based exact certification step.
 
-This is an independent reimplementation, not the paper's own code. The
-official code and data are published by the authors at
+**Project site (build instructions, usage, input/output reference):**
+<https://fabiofurini.github.io/bpp-numerically-exact/>
+
+This is an independent, clean-room reimplementation, not the paper's own
+code. The official code and data are published by the authors at
 [stefanoconiglio/A-Numerically-Exact-Algorithm-for-the-Bin-Packing-Problem](https://github.com/stefanoconiglio/A-Numerically-Exact-Algorithm-for-the-Bin-Packing-Problem)
 — see `CITATION.cff`.
 
@@ -15,7 +24,11 @@ backend preserves the paper's two column-generation phases: a fast
 CPLEX-or-Gurobi phase followed by mandatory rational SoPlex/GMP
 certification.
 
-The current tree is the clean project foundation: validated BPP model/parser, solution checker, CLI and tests. The CPLEX/Gurobi/SoPlex backend is intentionally kept behind `BPP_ENABLE_CPLEX`/`BPP_ENABLE_GUROBI`/`BPP_ENABLE_SOPLEX` while it is being extracted from the historical archive.
+Verified against the official reference implementation on all 50
+instances of the paper's ANI-201 benchmark family: all 50 certify a
+numerically exact integer optimum, at a mean running time within ~2.7x of
+the official implementation (see `docs/STATUS.md` for the full
+measurement and methodology).
 
 ## Build and smoke test
 
@@ -69,7 +82,7 @@ A CPLEX build additionally produces the historical comparison binary
 `build-cplex-soplex/bpp-solve-legacy` (always CPLEX+SoPlex, matching the
 historical executable's own fixed choice, regardless of `BPP_ENABLE_GUROBI`).
 
-The temporary reader format is one line containing `<number_of_items> <capacity>`, followed by one integer weight per item. The CPLEX/Gurobi backend will add the documented benchmark readers before the first public release.
+The instance file format is one line containing `<number_of_items> <capacity>`, followed by one integer weight per item, one per line.
 
 With a CPLEX- and/or Gurobi-enabled build, the executable exposes the
 migrated root and tree paths:
@@ -140,8 +153,6 @@ For continuation by another LLM, start with
 [`docs/CONTINUATION_STATE.md`](docs/CONTINUATION_STATE.md).
 
 ## Provenance
-
-The historical implementation is preserved in `../ARCHIVIO_CODICE/SETUP_BPP_CODE/` and is not modified by this project.
 
 This repository is an independent, clean-room reimplementation of the
 algorithm described in the paper. The paper's own official code and data
