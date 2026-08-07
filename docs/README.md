@@ -17,6 +17,7 @@
 - [`legacy-info-files.md`](legacy-info-files.md): interpretation of the legacy runtime files.
 - [`legacy-info/`](legacy-info/): preserved long histories and the two-row ANI baseline exports.
 - [`ani201-full-comparison.md`](ani201-full-comparison.md): full 50/50 ANI-201 comparison against the official reference binary, default flags only.
+- [`ani402-10-comparison.md`](ani402-10-comparison.md): first 10 ANI-402 instances against the official reference binary, default flags only.
 - [`ani-comparison-report.md`](ani-comparison-report.md): ANI comparison methodology and current results.
 - [`paper-comparison.md`](paper-comparison.md): recalculation against the paper's Tables 1–3.
 
