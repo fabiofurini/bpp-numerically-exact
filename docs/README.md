@@ -5,6 +5,7 @@
 - [`CODE.md`](CODE.md): repository layout, what implements what.
 - [`COMPILE.md`](COMPILE.md): dependencies and build instructions.
 - [`USAGE.md`](USAGE.md): how to invoke `bpp-solve`, modes and options.
+- [`EXAMPLE.md`](EXAMPLE.md): a worked example, reading a solution figure bin by bin.
 - [`INPUT.md`](INPUT.md): instance file format.
 - [`OUTPUT.md`](OUTPUT.md): output fields, with worked examples.
 
