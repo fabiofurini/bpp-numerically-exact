@@ -34,6 +34,27 @@ each — a structurally different packing the solver has to prove is
 simultaneously optimal alongside the simpler one-large-item bins, not
 just find by itself.
 
+## Items too small to label in the figure
+
+201 items are placed in total; 191 are labeled directly in the figure.
+The remaining 10 are too small (down to weight 4, against a capacity of
+2456) for their block to fit a legible number at any reasonable image
+scale — labeling the smallest would require making the largest item over
+5000 pixels tall. They're listed here instead:
+
+| Bin | Item index | Weight |
+|---|---|---|
+| 2 | 200 | 4 |
+| 8 | 195 | 26 |
+| 14 | 196 | 16 |
+| 24 | 197 | 16 |
+| 25 | 198 | 16 |
+| 28 | 199 | 16 |
+| 35 | 194 | 28 |
+| 44 | 191 | 36 |
+| 65 | 192 | 32 |
+| 66 | 193 | 32 |
+
 ---
 
 See also: [Input format](INPUT.md) · [Output format](OUTPUT.md) · [Usage](USAGE.md)
