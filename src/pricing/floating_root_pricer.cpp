@@ -253,57 +253,65 @@ class FractionalBoundTable {
   std::vector<double> cum_value_;
 };
 
-// True when state_a is at least as favorable as state_b on every active
-// cut, where "favorable" depends on the cut's dual SIGN: for a
-// non-negative-dual cut, completing it only ever helps, so being closer to
-// completion (higher count) is favorable and state_a's count must be >=
-// state_b's; for a NEGATIVE-dual cut, completing it is a penalty (the
-// label's value is reduced once its count reaches 2), so being closer to
-// completion can HURT, and state_a's count must be <= state_b's instead.
+// Value-based SR3 dominance, replacing the earlier state-covering rule
+// (see git history / docs/STATUS.md for the retired cut_state_covers) with
+// a port of legacy's actual mechanism (mckpsc_ls_alg_dominance,
+// mckpsc-ls.cpp:2060-2208): label A (value_a, 1-bit-per-cut parity state
+// state_a) dominates label B (value_b, state_b), given load_a <= load_b,
+// iff A's value is still >= B's after charging A the worst-case extra SR3
+// risk it carries relative to B:
 //
-// An earlier version of this function used a uniform ">=" regardless of
-// sign, which is unsound: consider a negative-dual cut where label A has
-// count 1 (one step from the penalty) and label B has count 0 (two steps
-// away), with A.value >= B.value otherwise. If exactly one more
-// cut-relevant item remains reachable and is worth including on its own
-// item-value merits, A is forced to pay the penalty upon including it
-// (count 1->2) while B is not (count 0->1, never reaches 2) -- so A's
-// final value can end up *below* B's for that same completion, and B is
-// not actually dominated. Requiring state_a's count <= state_b's for
-// negative-dual cuts instead makes A the one less likely to be forced into
-// the penalty, which restores soundness: for every future completion, A's
-// per-cut contribution is provably >= B's, cut by cut, regardless of sign
-// (see docs/STATUS.md for the full derivation).
-bool cut_state_covers(std::uint64_t state_a, std::uint64_t state_b, const std::vector<Sr3Cut>& cuts) {
+//   value_a >= value_b + margin,  margin = sum over cuts s of:
+//     dual_s < 0 (penalty cut) and A primed, B not primed:  -dual_s
+//     dual_s > 0 (bonus  cut) and B primed, A not primed:   +dual_s
+//
+// "Primed" means the parity bit is set: this label has seen an odd number
+// (1 or 3) of this cut's three items so far, so its *next* encountered
+// member item would toggle the bit and apply the cut's dual to the running
+// value (see the increment logic below) -- i.e. the bit tracks "is this
+// label one step from a value change on this cut", not the exact 0/1/2/3
+// count, which is legacy's actual representation (1 bit per cut, not 2)
+// and is what lets it track hundreds of simultaneous cuts in one bitmask
+// instead of the ~20-cut ceiling a 2-bit-per-cut packed count imposes.
+//
+// Derivation for classical BPP (no Ryan-Foster conflicts): legacy's full
+// dominance rule (used for the general MC-KP-SC engine) also has an
+// "rcLeftItems" term crediting B for remaining reachable items A cannot
+// reach. For plain capacity (no conflicts), load_a <= load_b means A's
+// remaining capacity is >= B's, so every item B can still fit, A can too
+// -- that term is provably empty and drops out, leaving exactly the
+// formula above. The margin's sign-generalization to positive-dual cuts
+// (legacy only ever sees dual <= 0, since an SR3 "<=1" row's dual in a
+// minimization primal is never positive by LP duality) mirrors this
+// codebase's own established sign-aware convention from the retired
+// state-covering rule, so this stays sound even if a positive dual is
+// ever observed numerically.
+//
+// Soundness note: a cut whose 3 members have *all* already been placed or
+// passed by both labels at this position can no longer change value for
+// either, so it contributes no real future risk -- but the formula still
+// charges a margin for it if the (now-frozen) bits differ. That makes the
+// rule strictly *more* conservative than necessary in that edge case
+// (fewer prunes, never an incorrect one), not unsound.
+double sr3_dominance_margin(std::uint64_t state_a, std::uint64_t state_b,
+                            const std::vector<Sr3Cut>& cuts) {
+  double margin = 0.0;
   for (std::size_t cut = 0; cut < cuts.size(); ++cut) {
-    const std::uint64_t shift = 2 * cut;
-    const std::uint64_t count_a = (state_a >> shift) & 0x3ULL;
-    const std::uint64_t count_b = (state_b >> shift) & 0x3ULL;
-    if (cuts[cut].dual >= 0.0) {
-      if (count_a < count_b) return false;
-    } else {
-      if (count_a > count_b) return false;
+    const std::uint64_t bit = 1ULL << cut;
+    const bool a_primed = (state_a & bit) != 0;
+    const bool b_primed = (state_b & bit) != 0;
+    const double dual = cuts[cut].dual;
+    if (dual < 0.0) {
+      if (a_primed && !b_primed) margin += -dual;
+    } else if (dual > 0.0) {
+      if (b_primed && !a_primed) margin += dual;
     }
   }
-  return true;
+  return margin;
 }
 
-// Removes SR3 labels dominated by another label in the same map. Label A
-// (load_a, state_a, value_a) dominates B when load_a <= load_b,
-// value_a >= value_b, and state_a covers state_b (cut_state_covers, sign-
-// aware per cut above). This is exact, not heuristic, dominance: for any
-// future completion applied identically to both (they share the same
-// remaining candidate items, having reached this point via the same
-// processing order), A's per-cut contribution is provably >= B's on every
-// cut (by the direction argument above) and A has room for every item B
-// has room for (load_a <= load_b), so A's final value can never be beaten
-// by B's. Applying this on top of the exact (load, cut_state) memoization
-// already in price_label_setting_with_sr3 is what removes the
-// ~3x-per-simultaneous-cut growth documented in docs/STATUS.md: without
-// it, two labels with incomparable cut-state combinations but otherwise-
-// dominated (load, value) never collapse into one, so the frontier grows
-// close to 3^(active cuts).
-//
+// Removes SR3 labels dominated by another label in the same map, using
+// sr3_dominance_margin above instead of the retired state-covering rule.
 // Two cost controls, both needed (see docs/STATUS.md, two prior attempts
 // with only a size threshold on a full O(n^2) sweep both measured
 // net-negative): (1) only runs once the map exceeds `threshold` labels, so
@@ -314,7 +322,9 @@ bool cut_state_covers(std::uint64_t state_a, std::uint64_t state_b, const std::v
 // legacy DP's own bounded rc-sorted comparison window (mckpsc-ls.cpp,
 // PARAM_DELTA), which is incomplete/heuristic by the same design: it can
 // miss some dominated labels (sound, just not exhaustive), never prunes a
-// label that isn't actually dominated.
+// label that isn't actually dominated. Only checks "entries[i] dominates
+// entries[j]" (i.e. earlier-in-load-order dominates later), not the
+// reverse -- same asymmetric-but-sound limitation the retired rule had.
 template <typename LabelInfo>
 void prune_dominated_sr3_labels(std::unordered_map<std::uint64_t, LabelInfo>& labels,
                                 const std::vector<Sr3Cut>& cuts, std::size_t threshold,
@@ -331,9 +341,11 @@ void prune_dominated_sr3_labels(std::unordered_map<std::uint64_t, LabelInfo>& la
     const std::size_t window_end = std::min(i + 1 + window, entries.size());
     for (std::size_t j = i + 1; j < window_end; ++j) {
       if (dominated[j]) continue;
-      // entries is sorted by load ascending, so load_i <= load_j here.
-      if (entries[i].second.value >= entries[j].second.value &&
-          cut_state_covers(state_i, entries[j].first & ((1ULL << 40) - 1), cuts)) {
+      // entries is sorted by load ascending, so load_i <= load_j here --
+      // the precondition sr3_dominance_margin's derivation relies on.
+      const std::uint64_t state_j = entries[j].first & ((1ULL << 40) - 1);
+      const double margin = sr3_dominance_margin(state_i, state_j, cuts);
+      if (entries[i].second.value >= entries[j].second.value + margin) {
         dominated[j] = true;
       }
     }
@@ -437,14 +449,15 @@ BranchGroups build_branch_groups(const Instance& instance, const std::vector<dou
   return result;
 }
 
-// Label key for the branch-aware SR3 DP: capacity used, packed SR3 cut-count
-// state (same 2-bits-per-cut scheme as price_label_setting_with_sr3), and a
-// packed conflict-slot bitmask (1 bit per Together-element that participates
-// in at least one Different constraint, set once that element has been
-// selected on this path). Kept as three separate fields rather than packed
-// into one 64-bit int like the cut-only DP: branching nodes need both cut
-// and conflict state simultaneously, and jamming both into 64 bits alongside
-// load would leave too few bits to be a safe general-purpose cap.
+// Label key for the branch-aware SR3 DP: capacity used, packed SR3 cut-state
+// (same 1-bit-per-cut parity scheme as price_label_setting_with_sr3, see
+// sr3_dominance_margin's doc comment), and a packed conflict-slot bitmask (1
+// bit per Together-element that participates in at least one Different
+// constraint, set once that element has been selected on this path). Kept as
+// three separate fields rather than packed into one 64-bit int like the
+// cut-only DP: branching nodes need both cut and conflict state
+// simultaneously, and jamming both into 64 bits alongside load would leave
+// too few bits to be a safe general-purpose cap.
 struct BranchKey {
   std::uint32_t load;
   std::uint64_t cut_state;
@@ -607,15 +620,22 @@ std::vector<PricingResult> FloatingRootPricer::price_label_setting_with_sr3(
 
   const int capacity = instance.capacity();
   const auto k = cuts.size();
-  // Per-label cut state (how many of each cut's three items are already in
-  // the partial pattern, clamped to 2) is packed 2 bits per cut into a
-  // single integer key instead of a heap-allocated vector per label: with
-  // thousands of labels touched per pricing call, a vector-keyed map made
-  // this DP allocation-bound and slower than the DFS it was meant to
-  // replace. Combining load and packed cut state into one 64-bit key keeps
-  // every label transition allocation-free.
-  if (k > 20) {
-    throw std::invalid_argument("price_label_setting_with_sr3 supports at most 20 simultaneous cuts");
+  // Per-label cut state is packed 1 bit per cut into a single integer key
+  // instead of a heap-allocated vector per label: with thousands of labels
+  // touched per pricing call, a vector-keyed map made this DP allocation-
+  // bound and slower than the DFS it was meant to replace. Combining load
+  // and packed cut state into one 64-bit key keeps every label transition
+  // allocation-free. The bit is a PARITY flag, not a clamped count -- it
+  // tracks whether an odd number (1 or 3) of the cut's three items have
+  // been seen so far, i.e. whether the *next* one seen would trigger the
+  // cut's dual (see the label-extension loop below and
+  // sr3_dominance_margin's doc comment) -- this mirrors legacy's own
+  // representation (mckpsc-ls.cpp's vbm_sr3, 1 bit per cut) rather than
+  // this DP's earlier 2-bit clamped-count packing, and is what lets the
+  // 40-bit reserved region here hold twice as many simultaneous cuts (40
+  // instead of 20) for the same key width.
+  if (k > 40) {
+    throw std::invalid_argument("price_label_setting_with_sr3 supports at most 40 simultaneous cuts");
   }
   if (capacity < 0 || capacity >= (1 << 24)) {
     throw std::invalid_argument("price_label_setting_with_sr3 requires capacity below 2^24");
@@ -636,12 +656,6 @@ std::vector<PricingResult> FloatingRootPricer::price_label_setting_with_sr3(
     return (static_cast<std::uint64_t>(load) << 40) | cut_state;
   };
   auto unpack_load = [](std::uint64_t key) { return static_cast<int>(key >> 40); };
-  auto cut_count = [](std::uint64_t cut_state, std::size_t cut) {
-    return (cut_state >> (2 * cut)) & 0x3ULL;
-  };
-  auto with_cut_incremented = [](std::uint64_t cut_state, std::size_t cut) {
-    return cut_state + (1ULL << (2 * cut));
-  };
 
   struct LabelInfo { double value; int path; };
   std::unordered_map<std::uint64_t, LabelInfo> labels;
@@ -725,20 +739,23 @@ std::vector<PricingResult> FloatingRootPricer::price_label_setting_with_sr3(
       }
     }
     if (labels.empty()) break;
-    // Cut-state dominance (prune_dominated_sr3_labels) is the fix for the
-    // ~3x-per-simultaneous-cut frontier growth: the fathoming bound above
-    // only removes labels that can never be improving, while this removes
-    // labels that are improving but strictly dominated by another label
-    // already on the frontier. Two earlier attempts (2026-08-07 night, see
-    // docs/STATUS.md) with a full O(n^2) sweep (every item, then every 25th
-    // item) were both measured net-negative -- the O(n^2) cost itself was
-    // the problem. This call is now bounded on both axes (size threshold
+    // Value-based SR3 dominance (prune_dominated_sr3_labels, using
+    // sr3_dominance_margin) is the fix for the ~3x-per-simultaneous-cut
+    // frontier growth: the fathoming bound above only removes labels that
+    // can never be improving, while this removes labels that are improving
+    // but strictly dominated by another label already on the frontier.
+    // Earlier attempts with a full O(n^2) sweep (2026-08-07 night, see
+    // docs/STATUS.md) were measured net-negative -- the O(n^2) cost itself
+    // was the problem. This call is bounded on both axes (size threshold
     // 500, matching legacy's dom_nlabels_thr, and a comparison window of 8
     // per entry instead of the full remaining suffix, mirroring legacy's
     // own bounded rc-sorted window, PARAM_DELTA), making it O(n*8) instead
-    // of O(n^2) -- see the function's own doc comment for the derivation
-    // and for the sign-aware dominance rule this also fixed (2026-08-07
-    // morning: the original rule was unsound for negative-dual cuts).
+    // of O(n^2). The dominance criterion itself was ported from legacy's
+    // value-based (reduced-cost-margin) rule on 2026-08-08, replacing an
+    // earlier state-covering rule that capped simultaneous cuts at 20 and
+    // whose comparison cost grew with the cut-state space rather than
+    // staying flat in the number of cuts -- see sr3_dominance_margin's doc
+    // comment for the full derivation.
     prune_dominated_sr3_labels(labels, cuts, 500, 8);
 
     // A snapshot freezes the labels visible before this item, so each path
@@ -753,14 +770,20 @@ std::vector<PricingResult> FloatingRootPricer::price_label_setting_with_sr3(
               positive_cut_bound + bound_margin <= bin_cost_) {
         continue;
       }
+      // Toggle each incident cut's parity bit; a 1->0 transition (the bit
+      // was already set, meaning this is the cut's 2nd or 4th... member
+      // item seen) is the one that actually completes a pair and applies
+      // the cut's dual, mirroring legacy's bit-toggle-with-penalty-
+      // application timing (mckpsc-ls.cpp ~2460-2540) exactly, generalized
+      // to either dual sign per sr3_dominance_margin's doc comment.
       const std::uint64_t cut_state = key & ((1ULL << 40) - 1);
       std::uint64_t new_state = cut_state;
       double bonus = 0.0;
       for (std::size_t cut : incident_cuts) {
-        if (cut_count(new_state, cut) < 2) {
-          new_state = with_cut_incremented(new_state, cut);
-          if (cut_count(new_state, cut) == 2) bonus += cuts[cut].dual;
-        }
+        const std::uint64_t bit = 1ULL << cut;
+        const bool was_primed = (new_state & bit) != 0;
+        new_state ^= bit;
+        if (was_primed) bonus += cuts[cut].dual;
       }
       const double new_value = extended_value + bonus;
       const auto new_key = pack_key(load + weight, new_state);
@@ -907,7 +930,7 @@ std::vector<PricingResult> FloatingRootPricer::price_label_setting_with_branchin
   }
 
   constexpr std::size_t kMaxConflictSlots = 40;
-  constexpr std::size_t kMaxCuts = 20;
+  constexpr std::size_t kMaxCuts = 40;
   if (slot_count > kMaxConflictSlots || k > kMaxCuts) {
     // Exact fallback for a node with more simultaneous conflicts/cuts than
     // the packed state can hold. Still correct, just the pre-fix DFS cost;
@@ -1080,16 +1103,25 @@ std::vector<PricingResult> FloatingRootPricer::price_label_setting_with_branchin
         continue;
       }
 
+      // Same parity-bit toggle as price_label_setting_with_sr3, looped once
+      // per matched member instead of once per item: a Together-contracted
+      // element can carry 2 or even all 3 of a cut's members in a single
+      // step (matched_in_element), unlike the root DP's one-item-at-a-time
+      // extensions. Looping the single-occurrence toggle `matched` times is
+      // exactly equivalent to adding the members one at a time (the bonus
+      // fires on whichever toggle is the 1->2 transition, same as legacy);
+      // sound because each cut has exactly 3 members total, so a label can
+      // never be extended past count 3 for a given cut, and the toggle
+      // sequence 0->1->0->1 (counts 0,1,2,3) never revisits the 1->2 edge.
       std::uint64_t new_cut_state = key.cut_state;
       double bonus = 0.0;
       for (std::size_t cut : incident_cuts) {
-        const std::uint64_t old_count = (new_cut_state >> (2 * cut)) & 0x3ULL;
-        if (old_count >= 2) continue;
-        const auto matched = static_cast<std::uint64_t>(matched_in_element(element, cut));
-        const std::uint64_t new_count = std::min<std::uint64_t>(old_count + matched, 2);
-        if (new_count != old_count) {
-          new_cut_state = (new_cut_state & ~(0x3ULL << (2 * cut))) | (new_count << (2 * cut));
-          if (new_count == 2) bonus += cuts[cut].dual;
+        const std::uint64_t bit = 1ULL << cut;
+        const int matched = matched_in_element(element, cut);
+        for (int occurrence = 0; occurrence < matched; ++occurrence) {
+          const bool was_primed = (new_cut_state & bit) != 0;
+          new_cut_state ^= bit;
+          if (was_primed) bonus += cuts[cut].dual;
         }
       }
       const double new_value = extended_value + bonus;

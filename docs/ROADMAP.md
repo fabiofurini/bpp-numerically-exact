@@ -132,20 +132,29 @@ this file only changes when the roadmap itself changes, not every session.
    time, converging gradually like this codebase's own root does. The
    seeding revert itself was still the right call, just for the wrong
    diagnosed reason.
-2. Sub-quadratic-in-spirit dominance for the SR3-aware pricing DP is now
-   **fixed and re-enabled** (`docs/STATUS.md`, 2026-08-07 "SR3 dominance
-   correctness fix" checkpoint): a real unsoundness bug in the componentwise
-   dominance rule (unsound for negative-dual cuts) was found and fixed
-   before re-enabling it, bounded to O(n*window) via a sorted sliding
-   window (mirroring legacy's own `PARAM_DELTA`-bounded comparison) instead
-   of the two previously-abandoned O(n^2) attempts. New `--sr3-max-rounds`
-   flag now makes 10 simultaneous SR3 cuts practical (~20s on
-   `201_2500_NR_0.txt`, matching the official binary's own cut count on
-   that instance), where before this fix more than 4 was not viable at all.
-   Still open: pushing past ~10-12 simultaneous cuts remains expensive
-   (15 rounds exceeded 60s even with the fix) -- a genuinely sub-quadratic
-   structure (bucket-by-load skyline) rather than a bounded-window
-   heuristic pass would be needed to go further, if still worth it after
+2. Dominance for the SR3-aware pricing DP is now **realigned with legacy's
+   actual mechanism** (`docs/STATUS.md`, 2026-08-08 "SR3 pricing DP
+   dominance realigned with legacy" checkpoint), a further increment on the
+   2026-08-07 "SR3 dominance correctness fix" checkpoint: re-read
+   `mckpsc-ls.cpp` and found legacy uses 1-bit-per-cut parity state plus a
+   value-based (reduced-cost-margin) dominance comparison, not this
+   codebase's own 2-bit clamped-count state-covering rule. Ported both
+   (root and branch-aware DPs), which made each dominance comparison
+   flat-cost in the number of cuts instead of growing with the cut-state
+   space, and doubled the simultaneous-cut cap from 20 to 40 for free (same
+   40-bit packed-key region, half the bits per cut). The bounded-window
+   sweep itself (O(n*window), mirroring legacy's `PARAM_DELTA`) is
+   unchanged -- still a heuristic pass, not exhaustive dominance -- only the
+   per-comparison cost inside it changed.
+   Measured: a 600-item stress instance with `--sr3-max-rounds 20` (forcing
+   20 simultaneous cuts) went from **not finishing within a 300s budget**
+   before this port to **completing and certifying correctly in 16m27s**
+   after -- not fast, but a real qualitative change. The full 50-instance
+   ANI-201 sweep still certifies 50/50 with no regression.
+   Still open: pushing meaningfully past ~20 simultaneous cuts in
+   reasonable time would still need a genuinely sub-quadratic structure
+   (bucket-by-load skyline, closer to legacy's own bucketed comparison)
+   rather than the bounded-window heuristic pass, if still worth it after
    item 1 above is addressed.
 3. A master/row-level persistent warm start for `NodeStrategy::DepthFirst`
    (CPLEX bound-toggling across backtracking instead of the current

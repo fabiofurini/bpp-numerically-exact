@@ -1541,6 +1541,97 @@ this fix), and re-measuring the full ANI-402 sample and the earlier
 `build_branch_groups`-caching branching optimization now that this larger
 fix landed -- both still open, not yet re-verified against this checkpoint.
 
+## Refactoring checkpoint (2026-08-08: SR3 pricing DP dominance realigned with legacy -- 1-bit parity state, value-based margin, 40-cut cap)
+
+Direct response to an explicit mandate ("bisogna che il codice sia
+allineato a quello vecchio e la DP e il cuore di tutto"): re-read
+`legacy/source/mckpsc-ls.cpp`'s actual SR3 dominance mechanism end to end
+(not just the activation schedule, as in the 2026-08-07 checkpoints) and
+ported its real representation, rather than continuing to tune this
+codebase's own from-scratch state-covering rule.
+
+**What legacy actually does, confirmed by direct source reading**: 1 bit
+per cut (parity: has an odd number, 1 or 3, of the cut's three members
+been seen so far), packed in a multi-word bitmask (`vbm_sr3`, up to
+`MAXNSR3CUTS=1000`), combined with a VALUE-based (reduced-cost-margin)
+dominance comparison -- not the state-covering comparison this codebase
+had been using (2 bits per cut, clamped count, `cut_state_covers`). The
+state-covering approach's per-comparison cost grows with the cut-state
+space; legacy's is a flat O(cuts) sum per comparison, which is what lets
+it scale to hundreds of simultaneous cuts instead of a low fixed cap.
+
+**Derivation for classical BPP** (no Ryan-Foster conflicts, verified
+against the general MC-KP-SC dominance formula in
+`mckpsc-ls.cpp:2060-2208`): legacy's full rule includes an "unreached
+items" credit term that is provably empty here, since (no conflicts)
+`load_A <= load_B` already implies A can reach every item B can reach.
+What remains is exactly: label A (value_a, state_a) dominates label B
+(value_b, state_b), given `load_a <= load_b`, iff
+`value_a >= value_b + margin`, where `margin` sums, per active cut, a
+sign-aware term (dual < 0, A primed and B not: pay `-dual`; dual > 0, B
+primed and A not: pay `dual`) -- generalizing legacy's negative-dual-only
+formula to both signs, matching this codebase's own established
+sign-aware convention from the 2026-08-07 dominance fix.
+
+**Implemented** in both `price_label_setting_with_sr3` (root) and
+`price_label_setting_with_branching_and_sr3` (branch-aware): replaced the
+`pack_key`/`cut_count`/`with_cut_incremented` 2-bit helpers and
+`cut_state_covers` with 1-bit XOR-toggle state and a new
+`sr3_dominance_margin` function; `prune_dominated_sr3_labels` now compares
+via the value-margin rule instead of state-covering. The bonus/penalty is
+applied on the toggle's 1->0 transition (the cut's 2nd member seen),
+exactly mirroring legacy's toggle-then-apply timing. The branch-aware
+DP's elements can add 2 or 3 of a cut's members in a single step
+(Together-contraction), unlike the root DP's one-item-at-a-time steps; the
+toggle is looped once per matched member instead, which is exactly
+equivalent to adding members one at a time (proven sound because each cut
+has only 3 members total, so the 1->2 completion edge is never revisited).
+Reusing the same 40-bit packed-key region at 1 bit/cut instead of 2 also
+doubled the simultaneous-cut cap from 20 to 40 for free.
+
+**Adversarial testing before enabling on real instances** (matching the
+rigor of the 2026-08-07 sign-aware fix): added a cut-count cap-boundary
+test (40 cuts accepted, 41 throws) and a stress case empirically
+instrumented to confirm it actually exercises the windowed dominance
+prune -- not just stays under the 500-label threshold like every prior
+SR3 DP test in the file -- peaking at ~750 live labels and triggering the
+prune sweep over a dozen times in one call, with the DP result still
+matching the DFS reference exactly. `ctest` passes on all four build
+configurations both before and after the port; the pre-existing mixed-sign
+cross-check tests (positive- and negative-dual cuts together) also still
+pass, unchanged.
+
+**Measured**:
+- Full 50-instance ANI-201 sweep (`--root-cg`, default flags): still
+  **50/50 certified**, UB=66 uniform, no regression. Mean time 6.45s
+  (previous baseline 5.79s, `docs/ani201-full-comparison.md`) -- within
+  noise from concurrent background load during this run, not attributable
+  to the port itself (these instances use 3-4 simultaneous cuts, far below
+  where the representation change has any effect).
+- A 600-item ANI-family stress instance with default settings (4 SR3
+  cuts): unchanged at ~4m46s, confirming this particular instance's cost
+  was never driven by cut-count DP scaling in the first place -- it simply
+  never accumulates enough simultaneous cuts to exercise the fixed
+  bottleneck.
+- The same instance with `--sr3-max-rounds 20` (forcing 20 simultaneous
+  cuts, the actual motivating scenario): **before this port, this
+  configuration did not finish even given a 300s budget (zero output)**;
+  after, it **completes and certifies in 16m27s** with all 20 cuts
+  applied. Not fast, but the qualitative change -- from "not viable at
+  all" to "viable, correct, if slow" -- is real and directly attributable
+  to the flat-per-comparison-cost margin rule replacing the state-space
+  one.
+
+**Still open**: the O(n*window) bounded-sweep structure itself is
+unchanged (still a heuristic pass, not exhaustive dominance, and still
+not truly sub-quadratic) -- the win here is that each comparison inside
+that sweep is now flat-cost in the number of cuts instead of growing with
+the cut-state space, not a change to the sweep's own asymptotic shape. A
+genuinely sub-quadratic structure (bucket-by-load skyline, matching
+legacy's own bucketed comparison more closely) is still the concrete next
+step if pushing meaningfully past 20 simultaneous cuts in reasonable time
+ever matters; not attempted this checkpoint.
+
 ## Refactoring checkpoint (2026-08-06)
 
 ### Verified

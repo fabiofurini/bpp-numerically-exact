@@ -369,6 +369,80 @@ int main() {
   }
 
   {
+    // Cut-count cap boundary, post the 2026-08-08 port from 2-bit clamped
+    // counts to 1-bit parity: the packed key's 40-bit reserved region now
+    // holds one bit per cut instead of two, so the ceiling doubled from 20
+    // to 40 cuts. 40 must work, 41 must still throw (the boundary itself,
+    // not just "doesn't crash somewhere below it").
+    std::vector<int> weights{2, 3, 5, 7, 11, 13, 17, 19};
+    bpp::Instance instance(60, weights, "cut-cap");
+    const std::vector<double> duals(weights.size(), 0.5);
+    const bpp::FloatingRootPricer pricer;
+    auto make_cuts = [&](std::size_t count) {
+      std::vector<bpp::Sr3Cut> cuts;
+      const int n = static_cast<int>(weights.size());
+      for (std::size_t i = 0; i < count; ++i) {
+        const int a = static_cast<int>(i) % n;
+        const int b = (static_cast<int>(i) + 1) % n;
+        const int c = (static_cast<int>(i) + 2) % n;
+        cuts.emplace_back(a, b, c, (i % 2 == 0) ? 0.2 : -0.2);
+      }
+      return cuts;
+    };
+    const auto at_cap = make_cuts(40);
+    const auto dp_at_cap = pricer.price_label_setting_with_sr3(instance, duals, at_cap, 4);
+    (void)dp_at_cap;  // must not throw
+    const auto over_cap = make_cuts(41);
+    bool threw = false;
+    try {
+      (void)pricer.price_label_setting_with_sr3(instance, duals, over_cap, 4);
+    } catch (const std::invalid_argument&) {
+      threw = true;
+    }
+    assert(threw);
+  }
+
+  {
+    // Adversarial stress case for the value-based SR3 dominance rule
+    // (sr3_dominance_margin) ported from legacy on 2026-08-08: enough items,
+    // capacity, and simultaneous mixed-sign cuts that the frontier genuinely
+    // exceeds prune_dominated_sr3_labels' threshold (500) mid-DP -- verified
+    // empirically (instrumented probe, not just inferred) to peak at ~750
+    // live labels and trigger the windowed prune sweep over a dozen times
+    // during this single call, unlike every other SR3 test in this file
+    // (all comfortably under 500 labels, so they never actually exercise the
+    // prune path, only the exact-key dominance at insertion). If the ported
+    // margin formula were unsound -- wrong sign handling, wrong parity
+    // timing -- this is exactly the kind of case where it would silently
+    // drop the label the true optimum needs; matching the DFS reference
+    // exactly here is the decisive end-to-end soundness check.
+    std::vector<int> weights;
+    std::vector<double> duals;
+    for (int i = 0; i < 22; ++i) {
+      weights.push_back(3 + (i * 7) % 10);
+      duals.push_back(0.80 + 0.008 * (i % 20));
+    }
+    bpp::Instance instance(60, weights, "sr3-dominance-stress");
+    const std::vector<bpp::Sr3Cut> cuts{
+        bpp::Sr3Cut(0, 1, 2, 0.4), bpp::Sr3Cut(3, 4, 5, -0.35),
+        bpp::Sr3Cut(6, 7, 8, 0.3), bpp::Sr3Cut(9, 10, 11, -0.25),
+        bpp::Sr3Cut(12, 13, 14, 0.2)};
+    const bpp::FloatingRootPricer pricer;
+    const auto dfs_result = pricer.price_with_sr3(instance, duals, cuts);
+    const auto dp_result = pricer.price_label_setting_with_sr3(instance, duals, cuts, 16);
+    assert(!dp_result.empty());
+    assert(std::abs(dp_result.front().dual_value - dfs_result.dual_value) < 1e-9);
+    assert(std::abs(dp_result.front().reduced_cost - dfs_result.reduced_cost) < 1e-9);
+    for (const auto& candidate : dp_result) {
+      assert(candidate.pattern.has_value());
+      double expected = 0.0;
+      for (int item : candidate.pattern->items()) expected += duals[static_cast<std::size_t>(item)];
+      for (const auto& cut : cuts) expected += cut.dual * cut.coefficient(*candidate.pattern);
+      assert(std::abs(expected - candidate.dual_value) < 1e-9);
+    }
+  }
+
+  {
     // Legacy tie-break (BPPS_BP_TREE.cpp:314): among equally fractional
     // pairs, prefer the one with the larger combined weight. Pair (0,1) is
     // enumerated first (weights 3+4=7) but pair (2,3) (weights 6+5=11) must
