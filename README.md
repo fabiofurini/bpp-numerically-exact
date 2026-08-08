@@ -41,9 +41,10 @@ solution, bin by bin, with a reading guide.
 6. **Exact one-bin-gap certification on the populated pool** — when the
    SR3-strengthened root bound still leaves a one-bin gap, the code fixes the
    populated columns and asks whether they can cover all items using at most
-   `incumbent - 1` bins. A Ryan-Foster tree proves the answer over this finite
-   pool, with pricing deliberately disabled; infeasibility proves that the
-   incumbent is optimal, rather than merely failing to improve it heuristically.
+   `incumbent - 1` bins. A Ryan-Foster branch-and-bound proves the answer over
+   this finite pool, with pricing deliberately disabled; infeasibility proves
+   that the incumbent is optimal, rather than merely failing to improve it
+   heuristically.
 
 ## Decisive SR3-to-rational improvement
 
