@@ -4,7 +4,9 @@ A numerically exact branch-price-and-cut solver for the classical
 one-dimensional Bin-Packing Problem, implementing Baldacci, Coniglio,
 Cordeau, Furini, *"A Numerically Exact Algorithm for the Bin-Packing
 Problem"* (INFORMS Journal on Computing, 2023). Independent, clean-room
-reimplementation — see `CITATION.cff`.
+reimplementation — see `CITATION.cff`. The paper's own official reference
+executable is at
+[stefanoconiglio/A-Numerically-Exact-Algorithm-for-the-Bin-Packing-Problem](https://github.com/stefanoconiglio/A-Numerically-Exact-Algorithm-for-the-Bin-Packing-Problem).
 
 ## What the solver does
 
