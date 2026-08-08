@@ -38,11 +38,12 @@ solution, bin by bin, with a reading guide.
 5. **Ryan-Foster branch-and-price** — the fallback for the (rare) instances
    the root alone cannot certify: a full enumeration tree with the same
    exact pricing and cut machinery at every node.
-6. **SAFE_MIP after population** — when the SR3-strengthened root bound still
-   leaves a one-bin gap, the code fixes the populated column pool, asks whether
-   a solution using at most `incumbent - 1` bins exists, and proves the answer
-   with a Ryan-Foster tree over that pool. Pricing is deliberately disabled:
-   this is an exact finite certification step, not a heuristic MIP call.
+6. **Exact one-bin-gap certification on the populated pool** — when the
+   SR3-strengthened root bound still leaves a one-bin gap, the code fixes the
+   populated columns and asks whether they can cover all items using at most
+   `incumbent - 1` bins. A Ryan-Foster tree proves the answer over this finite
+   pool, with pricing deliberately disabled; infeasibility proves that the
+   incumbent is optimal, rather than merely failing to improve it heuristically.
 
 ## Decisive SR3-to-rational improvement
 
