@@ -21,8 +21,9 @@ satisfy for every one of the 66 columns at once.
 
 ## What the bins look like on average
 
-On average a bin holds **3.05 items** and is filled to **98.5%** of
-capacity — this instance is deliberately hard to pack tightly. Most bins
+On average a bin holds **3.05 items** (from a minimum of **2** to a
+maximum of **24**) and is filled to **98.5%** of capacity — this instance
+is deliberately hard to pack tightly. Most bins
 (60 of 66) follow the same shape: one large item (roughly 90% of the
 capacity by itself) plus one or two small "filler" items that round it out
 almost exactly to the top — typical of the ANI benchmark family, whose
