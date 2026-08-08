@@ -161,6 +161,58 @@ const std::vector<Sr3Cut>& GurobiRmp::sr3_cuts() const noexcept { return impl_->
 const std::vector<double>& GurobiRmp::primal_values() const noexcept { return impl_->primals; }
 std::size_t GurobiRmp::pattern_count() const noexcept { return impl_->patterns; }
 
+std::optional<std::vector<std::size_t>> GurobiRmp::solve_mip_at_most(std::size_t max_bins) {
+  if (impl_->patterns == 0) throw std::logic_error("cannot solve an RMP without patterns");
+  for (std::size_t i = 0; i < impl_->patterns; ++i) {
+    if (GRBsetcharattrelement(impl_->model, GRB_CHAR_ATTR_VTYPE, static_cast<int>(i),
+                              GRB_BINARY) != 0) {
+      throw std::runtime_error("Gurobi MIP column-type change failed");
+    }
+  }
+  if (GRBupdatemodel(impl_->model) != 0) {
+    throw std::runtime_error("Gurobi MIP column-type commit failed");
+  }
+  std::vector<int> indices(impl_->patterns);
+  std::vector<double> ones(impl_->patterns, 1.0);
+  for (std::size_t i = 0; i < impl_->patterns; ++i) indices[i] = static_cast<int>(i);
+  if (GRBaddconstr(impl_->model, static_cast<int>(impl_->patterns), indices.data(), ones.data(),
+                   GRB_LESS_EQUAL, static_cast<double>(max_bins), nullptr) != 0) {
+    throw std::runtime_error("Gurobi MIP bin-count row creation failed");
+  }
+  if (GRBupdatemodel(impl_->model) != 0) {
+    throw std::runtime_error("Gurobi MIP bin-count row commit failed");
+  }
+  // Same rationale as CplexRmp::solve_mip_at_most: single thread (matches
+  // the RMP's own setup) and an explicit time limit, since proving
+  // infeasibility over a hard covering MIP can take arbitrarily long -- the
+  // caller treats "did not finish" as "could not certify this way", not as
+  // a crash or an infinite hang.
+  GRBsetintparam(GRBgetenv(impl_->model), GRB_INT_PAR_THREADS, 1);
+  GRBsetdblparam(GRBgetenv(impl_->model), GRB_DBL_PAR_TIMELIMIT, 20.0);
+  if (GRBoptimize(impl_->model) != 0) throw std::runtime_error("Gurobi MIP solve failed");
+  int status = 0;
+  if (GRBgetintattr(impl_->model, GRB_INT_ATTR_STATUS, &status) != 0) {
+    throw std::runtime_error("Gurobi MIP status query failed");
+  }
+  if (status == GRB_INFEASIBLE || status == GRB_INF_OR_UNBD) {
+    return std::nullopt;
+  }
+  if (status != GRB_OPTIMAL) {
+    throw std::runtime_error("Gurobi MIP did not reach a conclusive status (status " +
+                             std::to_string(status) + ")");
+  }
+  std::vector<double> x(impl_->patterns, 0.0);
+  if (GRBgetdblattrarray(impl_->model, GRB_DBL_ATTR_X, 0, static_cast<int>(impl_->patterns),
+                         x.data()) != 0) {
+    throw std::runtime_error("Gurobi MIP solution extraction failed");
+  }
+  std::vector<std::size_t> selected;
+  for (std::size_t i = 0; i < impl_->patterns; ++i) {
+    if (x[i] > 0.5) selected.push_back(i);
+  }
+  return selected;
+}
+
 }  // namespace bpp
 
 #else
@@ -180,6 +232,9 @@ const std::vector<double>& GurobiRmp::sr3_duals() const noexcept { static const 
 const std::vector<Sr3Cut>& GurobiRmp::sr3_cuts() const noexcept { static const std::vector<Sr3Cut> empty; return empty; }
 const std::vector<double>& GurobiRmp::primal_values() const noexcept { static const std::vector<double> empty; return empty; }
 std::size_t GurobiRmp::pattern_count() const noexcept { return 0; }
+std::optional<std::vector<std::size_t>> GurobiRmp::solve_mip_at_most(std::size_t) {
+  throw std::runtime_error("BPP was built without Gurobi");
+}
 }  // namespace bpp
 
 #endif

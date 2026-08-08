@@ -5,6 +5,7 @@
 #include "bpp/cuts.hpp"
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace bpp {
@@ -37,6 +38,14 @@ class GurobiRmp {
   const std::vector<Sr3Cut>& sr3_cuts() const noexcept;
   const std::vector<double>& primal_values() const noexcept;
   std::size_t pattern_count() const noexcept;
+
+  // Same contract as CplexRmp::solve_mip_at_most (see its doc comment):
+  // turns the current pool into a genuine 0/1 covering MIP with an added
+  // "at most max_bins patterns" row, solved by Gurobi's own branch-and-cut.
+  // Returns the selected pattern indices, or std::nullopt if Gurobi proves
+  // no such selection exists (a complete optimality proof for max_bins+1,
+  // independent of the LP/dual bound).
+  std::optional<std::vector<std::size_t>> solve_mip_at_most(std::size_t max_bins);
 
  private:
   struct Impl;

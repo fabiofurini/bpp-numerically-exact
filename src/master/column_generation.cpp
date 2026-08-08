@@ -112,20 +112,34 @@ void populate_root_columns(const Instance& instance,
   }
 }
 
-#ifdef BPP_HAS_CPLEX
-// Legacy SAFE_MIP_SOL (DP_POP.cpp:910-978), matching the paper's own
+// Legacy SAFE_MIP_SOL (DP_POP.cpp:910-1027), matching the paper's own
 // closing step (Sec. 4: "how we solve the reduced SC problem to optimality
 // ... thanks to a simplified version of our BPC algorithm"). Once
 // populate_root_columns has enumerated every pattern whose reduced cost
 // could conceivably matter (any pattern that could be part of a solution
 // beating the incumbent, given the certified duals), solving a genuine 0/1
 // MIP over that pool -- not just its LP relaxation -- either finds a
-// strictly better integer solution, or CPLEX's exact branch-and-cut proves
+// strictly better integer solution, or an exact branch-and-cut proves
 // infeasible, which is by itself a full, self-contained proof that the
 // incumbent is optimal: independent of, and not weakened by, whatever the
 // raw LP/dual bound says. Root-only (mirrors legacy's `level==0` gate on
-// this same mechanism, BPPS_BP_TREE.cpp:3832-3851) and CPLEX-only for now
-// (Gurobi MIP support not yet added to GurobiRmp).
+// this same mechanism, BPPS_BP_TREE.cpp:3832-3851).
+//
+// This is a deliberately different REALIZATION of Sec. 4's idea than
+// legacy's own code, not a port of it: legacy does not call a generic MIP
+// solver here at all -- it adds an "at most incumbent-1 columns" row to
+// the existing LP master, zeroes the bounds of every pre-populate column,
+// disables pricing, and lets its own Ryan-Foster branch-and-price tree
+// (already running, pricing just switched off) resolve the restricted
+// problem by branching on fractional LP solutions ("STARTING SAFE_MIP_SOL
+// via branching" is the code's own log message for this). This codebase
+// instead calls the RMP backend's own generic MIP engine (CPLEX's
+// CPXmipopt or Gurobi's GRBoptimize on 0/1 columns) directly on the
+// populated pool -- same end result (a genuine, solver-certified
+// infeasibility proof or a strictly better solution), simpler to reason
+// about and backend-agnostic, but a different code path than legacy's
+// tree-reuse trick. Worth knowing if a future comparison against legacy's
+// own timing/behavior on this specific step looks different.
 //
 // Bounded to a handful of rounds (populate, then MIP-check, repeating only
 // if the MIP found a genuine improvement) rather than looping until
@@ -134,10 +148,15 @@ void populate_root_columns(const Instance& instance,
 // legacy's own single populate-then-MIP-solve step is the baseline this
 // mirrors, so a handful of rounds is already an extension of it, not a
 // truncation.
+//
+// Guarded like the rest of this file's CPLEX/Gurobi-specific machinery:
+// unreachable in a portable (no CPLEX, no Gurobi) build, since column
+// generation itself requires one of those backends there.
+#if defined(BPP_HAS_CPLEX) || defined(BPP_HAS_GUROBI)
 void try_safe_mip_certification(const Instance& instance, const ColumnGenerationOptions& options,
                                 ColumnGenerationResult& result) {
   if (!options.branching.constraints().empty()) return;
-  if (options.backend != LpBackend::Cplex) return;
+  if (options.backend != LpBackend::Cplex && options.backend != LpBackend::Gurobi) return;
   constexpr int kMaxRounds = 5;
   for (int round = 0; round < kMaxRounds; ++round) {
     if (result.safe_bound.has_value() && result.safe_duals_feasible &&
@@ -172,11 +191,18 @@ void try_safe_mip_certification(const Instance& instance, const ColumnGeneration
     // risk certifying on an incomplete search.
     if (!result.populate_complete) return;
 
-    CplexRmp mip(instance, result.active_sr3_cuts);
-    for (const auto& pattern : result.patterns.patterns()) mip.add_pattern(pattern);
     std::optional<std::vector<std::size_t>> selection;
     try {
-      selection = mip.solve_mip_at_most(static_cast<std::size_t>(result.incumbent_bins) - 1);
+      const auto target = static_cast<std::size_t>(result.incumbent_bins) - 1;
+      if (options.backend == LpBackend::Cplex) {
+        CplexRmp mip(instance, result.active_sr3_cuts);
+        for (const auto& pattern : result.patterns.patterns()) mip.add_pattern(pattern);
+        selection = mip.solve_mip_at_most(target);
+      } else {
+        GurobiRmp mip(instance, result.active_sr3_cuts);
+        for (const auto& pattern : result.patterns.patterns()) mip.add_pattern(pattern);
+        selection = mip.solve_mip_at_most(target);
+      }
     } catch (const std::exception&) {
       // The MIP's own time limit (solve_mip_at_most) was hit without a
       // conclusive verdict: this pool/instance is not (yet) tractable this
@@ -217,7 +243,7 @@ void try_safe_mip_certification(const Instance& instance, const ColumnGeneration
     return;
   }
 }
-#endif
+#endif  // defined(BPP_HAS_CPLEX) || defined(BPP_HAS_GUROBI)
 
 void validate_column_generation_options(const ColumnGenerationOptions& options) {
   if (options.max_iterations == 0) throw std::invalid_argument("column-generation iteration limit must be positive");
@@ -743,7 +769,6 @@ ColumnGenerationResult solve_root_column_generation_algorithm1(
     populate_options.sr3_cuts = active_cuts;
     populate_root_columns(instance, populate_options, result);
   }
-#ifdef BPP_HAS_CPLEX
   // Legacy SAFE_MIP_SOL (see try_safe_mip_certification's doc comment):
   // a last-resort exact certification, tried only when the standard LP/
   // dual route above did not already certify. Unconditional (not gated on
@@ -755,7 +780,13 @@ ColumnGenerationResult solve_root_column_generation_algorithm1(
   // unbounded DFS enumeration that made it unsafe to run unconditionally
   // before that fix. A no-op (single ceil_bins check, immediate return)
   // whenever the standard route already certified, so this costs nothing
-  // on the common case.
+  // on the common case. Works with either backend (CPLEX or Gurobi) as of
+  // the GurobiRmp::solve_mip_at_most port -- a Gurobi-only build used to
+  // silently skip this certification route entirely (try_safe_mip_certification
+  // returned immediately on any non-CPLEX backend), which was a real gap:
+  // it could report an instance as uncertified even when this route would
+  // have certified it, purely because of which LP backend the build used.
+#if defined(BPP_HAS_CPLEX) || defined(BPP_HAS_GUROBI)
   if (result.converged && options.branching.constraints().empty()) {
     ColumnGenerationOptions mip_options = options;
     mip_options.sr3_cuts = active_cuts;

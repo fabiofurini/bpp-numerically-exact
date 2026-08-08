@@ -104,9 +104,14 @@ this file only changes when the roadmap itself changes, not every session.
    previously-stuck instances now certify in 5.6-9.7s each, and the full
    50-instance ANI-201 sweep is **50/50 certified** (0 stuck), mean ratio
    to the official binary **2.65x** (was ~7-8x at the start of this
-   session). Not yet done: Gurobi MIP support, wiring this into the
-   branching/tree case, and re-measuring ANI-402 and the
-   `build_branch_groups` caching idea against this new baseline.
+   session). Gurobi MIP support (`GurobiRmp::solve_mip_at_most`) added
+   2026-08-08 (see `docs/STATUS.md`): a Gurobi-only build used to skip this
+   certification route entirely and silently report some instances as
+   uncertified purely because of which LP backend the build used -- fixed,
+   verified backend-parity on every ANI-201/402/600 instance that needs
+   this route (24 instances, same UB on both backends). Not yet done:
+   wiring this into the branching/tree case, and re-measuring ANI-402 and
+   the `build_branch_groups` caching idea against this new baseline.
 
    Also open: preserving the round-persistent master across SR3 rounds in
    the new driver (rebuilds a fresh `MasterRmp` per round instead -- not

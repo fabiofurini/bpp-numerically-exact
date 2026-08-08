@@ -116,6 +116,38 @@ int main() {
     assert(rmp.objective_value() >= 1.0 - 1e-8);
   }
   {
+    // Direct CplexRmp::solve_mip_at_most check: 3 items, capacity 10,
+    // weights {5,5,5} -- needs 2 bins ({0,1} together, {2} alone). A
+    // max_bins of 2 must find that selection; max_bins of 0 forces every
+    // pattern variable to zero, which the base RMP's own item-coverage
+    // rows (>=1 each) make infeasible -- a real infeasibility proof, not
+    // a crash or a hang, which is exactly what try_safe_mip_certification
+    // relies on to treat "no selection" as a valid optimality certificate.
+    // solve_mip_at_most is one-shot per Rmp instance (it permanently
+    // mutates the model -- new row, columns turned binary -- exactly like
+    // try_safe_mip_certification's own real usage: a fresh Rmp every
+    // round), so each call below gets its own freshly built Rmp rather
+    // than reusing one.
+    bpp::Instance instance(10, {5, 5, 5}, "cplex-solve-mip-at-most");
+    bpp::Pattern pair(instance, {0, 1});
+    bpp::Pattern single(instance, {2});
+    {
+      bpp::CplexRmp rmp(instance);
+      rmp.add_pattern(pair);
+      rmp.add_pattern(single);
+      const auto feasible = rmp.solve_mip_at_most(2);
+      assert(feasible.has_value());
+      assert(feasible->size() == 2);
+    }
+    {
+      bpp::CplexRmp rmp(instance);
+      rmp.add_pattern(pair);
+      rmp.add_pattern(single);
+      const auto infeasible = rmp.solve_mip_at_most(0);
+      assert(!infeasible.has_value());
+    }
+  }
+  {
     bpp::Instance instance(10, {6, 4, 5, 5});
     const auto result = bpp::solve_root_column_generation(instance);
     assert(result.converged);
@@ -356,6 +388,34 @@ int main() {
     assert(rmp.sr3_cuts().size() == 1);
     assert(rmp.sr3_duals().size() == 1);
     assert(rmp.objective_value() >= 1.0 - 1e-8);
+  }
+  {
+    // Direct GurobiRmp::solve_mip_at_most check, mirroring the CplexRmp one
+    // above exactly (including the one-shot-per-Rmp-instance rule): this is
+    // the method a Gurobi-only build used to be entirely missing
+    // (try_safe_mip_certification returned immediately on any non-CPLEX
+    // backend), so an instance needing this exact certification route
+    // would silently report as uncertified purely because of which LP
+    // backend the build used -- not a wrong answer, but a real
+    // completeness gap. This is the regression test for that fix.
+    bpp::Instance instance(10, {5, 5, 5}, "gurobi-solve-mip-at-most");
+    bpp::Pattern pair(instance, {0, 1});
+    bpp::Pattern single(instance, {2});
+    {
+      bpp::GurobiRmp rmp(instance);
+      rmp.add_pattern(pair);
+      rmp.add_pattern(single);
+      const auto feasible = rmp.solve_mip_at_most(2);
+      assert(feasible.has_value());
+      assert(feasible->size() == 2);
+    }
+    {
+      bpp::GurobiRmp rmp(instance);
+      rmp.add_pattern(pair);
+      rmp.add_pattern(single);
+      const auto infeasible = rmp.solve_mip_at_most(0);
+      assert(!infeasible.has_value());
+    }
   }
   {
     // solve_root_column_generation with LpBackend::Gurobi explicitly

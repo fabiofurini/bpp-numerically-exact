@@ -46,8 +46,13 @@ class CplexRmp {
   // LP dual bound. Only meaningful once the pool already contains every
   // pattern that could possibly matter (see populate_root_columns's
   // enumeration threshold); this call does not itself enumerate anything.
-  // One-shot: leaves the LP's column types changed to binary, so the
-  // instance should not be reused for further LP solving afterward.
+  // One-shot: leaves the LP's column types changed to binary and adds a
+  // permanent row, so the instance should not be reused for further LP
+  // solving, nor called a second time with a different max_bins on the
+  // same instance (the second call's row coefficients silently land on
+  // the wrong row index, since row numbering assumes exactly one prior
+  // call) -- construct a fresh Rmp per attempt instead, exactly as
+  // try_safe_mip_certification does.
   std::optional<std::vector<std::size_t>> solve_mip_at_most(std::size_t max_bins);
 
  private:

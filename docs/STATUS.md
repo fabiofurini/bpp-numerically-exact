@@ -1632,6 +1632,72 @@ legacy's own bucketed comparison more closely) is still the concrete next
 step if pushing meaningfully past 20 simultaneous cuts in reasonable time
 ever matters; not attempted this checkpoint.
 
+## Refactoring checkpoint (2026-08-08: Gurobi MIP certification -- closes a real backend-parity gap)
+
+Found while investigating why a Gurobi-only build could report an
+instance as uncertified that a CPLEX build certified: `try_safe_mip_certification`
+(SAFE_MIP_SOL, see the earlier "SAFE_MIP_SOL implemented" checkpoint)
+returned immediately for any backend other than `LpBackend::Cplex` --
+`GurobiRmp` never had a `solve_mip_at_most`. Not a wrong answer (the
+function just declined to try), but a real completeness gap tied purely
+to which LP backend a build happened to use, which is exactly the kind of
+asymmetry a numerically-exact solver should not have.
+
+**Investigated legacy's own SAFE_MIP_SOL first** (`legacy/src/DP_POP.cpp:910-1027`)
+before implementing, expecting to find a generic-MIP-solver call to
+mirror. Legacy does something different: it never calls a generic MIP
+solver here at all. It adds an "at most incumbent-1 columns" row to the
+*existing* LP master, zeroes the bounds of every pre-populate column,
+disables pricing, and lets its own already-running Ryan-Foster
+branch-and-price tree (pricing switched off) resolve the restricted
+problem by branching on fractional LP solutions -- the code's own log
+line for this is literally `"STARTING SAFE_MIP_SOL via branching!!!!!"`.
+This codebase's `try_safe_mip_certification` instead calls the RMP
+backend's own generic MIP engine (`CPXmipopt`/`GRBoptimize` on 0/1
+columns) directly on the populate-enumerated pool -- a different, simpler
+realization of the same Sec. 4 idea, not a port of legacy's tree-reuse
+trick. Decided to keep this codebase's own mechanism (per explicit
+instruction) rather than rearchitect onto legacy's branching-reuse
+approach, and documented the difference in `column_generation.cpp`'s
+doc comment so it doesn't get mistaken for a legacy port later.
+
+**Implemented**: `GurobiRmp::solve_mip_at_most`, mirroring
+`CplexRmp::solve_mip_at_most`'s contract exactly (binary column types,
+an added "at most max_bins" row, single-threaded, 20s internal time
+limit, `GRB_INFEASIBLE`/`GRB_INF_OR_UNBD` treated as a genuine
+optimality proof). `try_safe_mip_certification`'s backend gate now
+accepts both `LpBackend::Cplex` and `LpBackend::Gurobi`, dispatching to
+the matching Rmp type.
+
+**A second, unrelated bug found and fixed while testing this**: both
+`build-cplex-soplex` and `build-gurobi-soplex`'s CMake caches held stale
+paths from the `BPP_BRASIL` -> `BPP_BRAZIL` folder rename (see the
+campaign work earlier this day) -- `GUROBI_ROOT` still pointed at the old
+name, and `SOPLEX_BUILD_ROOT` pointed at an ephemeral `/tmp` directory
+that no longer existed after a reboot. Neither was this fix's fault, but
+both blocked verifying it. Rebuilt SoPlex properly into the canonical
+`legacy/soplex-5.0.1/build-large` location (GMP support, PIC) instead of
+relying on an ephemeral or external copy, and reconfigured all three
+affected build directories.
+
+**A real bug found in my own first test of the fix**: an added regression
+test called `solve_mip_at_most` twice on the same `Rmp` instance to check
+both a feasible and an infeasible case, which silently produced a wrong
+(feasible) result for the second call -- `solve_mip_at_most` is one-shot
+per instance (the row-index math assumes exactly one prior call), a
+constraint that existed already but was under-documented and had no
+regression test exercising it. Fixed the test (fresh `Rmp` per call,
+matching `try_safe_mip_certification`'s own real usage) and strengthened
+the doc comment on `CplexRmp::solve_mip_at_most` to state the one-shot
+rule explicitly, so the next caller doesn't fall into the same trap.
+
+**Verified**: all four build configurations compile and pass `ctest`,
+including two new integration tests (`solve_mip_at_most` on a small
+hand-built feasible/infeasible pair, for both `CplexRmp` and `GurobiRmp`).
+Re-ran every ANI-201/402/600 instance from the day's comparison campaign
+that uses the MIP route (24 instances) with `--solver gurobi` explicitly:
+all 24 now certify, same upper bound as the CPLEX run in every case.
+
 ## Refactoring checkpoint (2026-08-06)
 
 ### Verified
