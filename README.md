@@ -17,26 +17,21 @@ solution, bin by bin, with a reading guide.
 
 ## How it works
 
-The algorithm follows the paper's two-phase column-generation scheme,
-with each stage opt-in only where it goes beyond the paper's own method:
-
-1. **Column generation (Algorithm 1)** — floating-point phase (CPLEX or
-   Gurobi) followed by a rational phase (SoPlex/GMP) that re-certifies
-   the same bound in infinite precision, closing the gap a purely
-   floating-point solver cannot: the two phases share one persistent
-   master, so nothing computed in phase I is discarded.
-2. **Pricing** — a dynamic-programming label-setting algorithm finds
-   negative-reduced-cost patterns (bins) exactly, in scaled-integer
-   arithmetic, rather than approximating with a heuristic.
-3. **SR3 (triplet) cut separation** — automatically strengthens the LP
-   relaxation with subset-row cuts on triples of items, run to a bounded
-   number of simultaneous cuts so the pricing DP stays fast (see
-   `docs/STATUS.md` for the exact dominance mechanism this relies on).
-4. **Root-node exact certification (Section 4)** — when the LP+cuts bound
-   alone doesn't close the integrality gap, a genuine 0/1 covering MIP is
-   solved on the enumerated column pool; infeasibility of "beat the
-   incumbent by 1" is itself a complete proof of optimality, independent
-   of the LP bound.
+1. **Column generation** — a floating-point phase (CPLEX or Gurobi) finds
+   a near-optimal set of bins quickly, then a rational phase (SoPlex/GMP)
+   re-certifies the same bound in infinite precision, closing the gap a
+   purely floating-point solver cannot: the two phases share one
+   persistent master, so nothing computed in the first phase is discarded.
+2. **Pricing** — a dynamic-programming label-setting algorithm finds new,
+   improving bins exactly, in scaled-integer arithmetic, rather than
+   approximating with a heuristic.
+3. **SR3 (triplet) cut separation** — automatically strengthens the bound
+   with cuts on triples of items, run to a bounded number of simultaneous
+   cuts so this stays fast (see `docs/STATUS.md` for how).
+4. **Root-node exact certification** — when cuts alone don't close the
+   gap, a genuine 0/1 covering problem is solved on the enumerated bins;
+   failing to find anything strictly better than the current best is
+   itself a complete proof that it's optimal.
 5. **Ryan-Foster branch-and-price** — the fallback for the (rare) instances
    the root alone cannot certify: a full enumeration tree with the same
    exact pricing and cut machinery at every node.
