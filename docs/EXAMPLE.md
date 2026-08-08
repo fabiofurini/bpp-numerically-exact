@@ -11,7 +11,7 @@ labeled with its index and sized to its weight.
 
 ## Reading the figure
 
-All 66 bins are shown, 11 per row, in the same order the solver reports
+All 66 bins are shown, 24 per row, in the same order the solver reports
 them. Each bin is a column as tall as the capacity (2456); inside it,
 every item the solver placed there is a colored block stacked from the
 bottom, as tall as that item's weight and labeled with the item's index
