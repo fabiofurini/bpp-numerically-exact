@@ -20,11 +20,13 @@
 #include "bpp/cplex_rmp.hpp"
 #include "bpp/gurobi_rmp.hpp"
 #include "bpp/column_generation.hpp"
+#include "bpp/instance_reader.hpp"
 #include "bpp/soplex_rmp.hpp"
 #include "bpp/pattern.hpp"
 #include <cassert>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 
 int main() {
 #ifdef BPP_HAS_CPLEX
@@ -90,6 +92,26 @@ int main() {
     const auto result = bpp::solve_root_column_generation(instance, options);
     assert(result.sr3_cuts_added == 1);
     assert(result.converged);
+  }
+  {
+    // ANI201 NR_13 is one of the campaign instances explicitly classified
+    // as "root: MIP": its certified root LP bound is 65 while its incumbent
+    // is 66.  It is therefore a regression for the legacy SAFE_MIP_SOL
+    // continuation after populate.  The assertion on safe_mip_nodes proves
+    // this did not merely close through the normal root certificate: the
+    // fixed-pool Ryan--Foster tree ran (with pricing disabled) and closed it.
+    const auto instance = bpp::read_instance(
+        std::string(BPP_SOURCE_DIR) + "/tests/data/ani201_2500_nr_13.txt");
+    bpp::ColumnGenerationOptions options;
+    options.populate = true;
+    options.populate_max_columns = 20000;
+    options.automatic_sr3_separation = true;
+    const auto result = bpp::solve_two_phase_root_column_generation(instance, options);
+    assert(result.converged);
+    assert(result.incumbent_bins == 66);
+    assert(result.safe_mip_nodes > 0);
+    assert(result.safe_bound.has_value());
+    assert(result.safe_bound->ceil_bins() == 66);
   }
   {
     bpp::Instance instance(10, {6, 4});
@@ -416,6 +438,25 @@ int main() {
       const auto infeasible = rmp.solve_mip_at_most(0);
       assert(!infeasible.has_value());
     }
+  }
+  {
+    // Same real SAFE_MIP_SOL regression as the CPLEX test above, now through
+    // Gurobi's LP RMP.  The continuation must still be the solver-owned
+    // no-pricing RF tree (not GRB's generic MIP engine), hence the explicit
+    // safe_mip_nodes assertion.
+    const auto instance = bpp::read_instance(
+        std::string(BPP_SOURCE_DIR) + "/tests/data/ani201_2500_nr_13.txt");
+    bpp::ColumnGenerationOptions options;
+    options.backend = bpp::LpBackend::Gurobi;
+    options.populate = true;
+    options.populate_max_columns = 20000;
+    options.automatic_sr3_separation = true;
+    const auto result = bpp::solve_two_phase_root_column_generation(instance, options);
+    assert(result.converged);
+    assert(result.incumbent_bins == 66);
+    assert(result.safe_mip_nodes > 0);
+    assert(result.safe_bound.has_value());
+    assert(result.safe_bound->ceil_bins() == 66);
   }
   {
     // solve_root_column_generation with LpBackend::Gurobi explicitly

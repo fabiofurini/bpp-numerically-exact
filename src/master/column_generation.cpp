@@ -1,6 +1,7 @@
 #include "bpp/column_generation.hpp"
 #include "bpp/heuristics.hpp"
 #include "bpp/soplex_rmp.hpp"
+#include "bpp/search.hpp"
 
 #include <cmath>
 #include <algorithm>
@@ -42,6 +43,7 @@ void populate_root_columns(const Instance& instance,
                            const ColumnGenerationOptions& options,
                            ColumnGenerationResult& result) {
   result.populate_columns = 0;
+  result.populate_first_pattern = result.patterns.size();
   result.populate_complete = false;
   if (options.populate_max_columns == 0) {
     result.populate_complete = true;
@@ -117,29 +119,40 @@ void populate_root_columns(const Instance& instance,
 // ... thanks to a simplified version of our BPC algorithm"). Once
 // populate_root_columns has enumerated every pattern whose reduced cost
 // could conceivably matter (any pattern that could be part of a solution
-// beating the incumbent, given the certified duals), solving a genuine 0/1
-// MIP over that pool -- not just its LP relaxation -- either finds a
-// strictly better integer solution, or an exact branch-and-cut proves
-// infeasible, which is by itself a full, self-contained proof that the
-// incumbent is optimal: independent of, and not weakened by, whatever the
-// raw LP/dual bound says. Root-only (mirrors legacy's `level==0` gate on
-// this same mechanism, BPPS_BP_TREE.cpp:3832-3851).
+// beating the incumbent, given the certified duals), searching that pool
+// for a genuine 0/1 selection -- not just its LP relaxation -- either
+// finds a strictly better integer solution, or proves none exists, which
+// is by itself a full, self-contained proof that the incumbent is
+// optimal: independent of, and not weakened by, whatever the raw LP/dual
+// bound says. Root-only (mirrors legacy's `level==0` gate on this same
+// mechanism, BPPS_BP_TREE.cpp:3832-3851).
 //
-// This is a deliberately different REALIZATION of Sec. 4's idea than
-// legacy's own code, not a port of it: legacy does not call a generic MIP
-// solver here at all -- it adds an "at most incumbent-1 columns" row to
-// the existing LP master, zeroes the bounds of every pre-populate column,
-// disables pricing, and lets its own Ryan-Foster branch-and-price tree
-// (already running, pricing just switched off) resolve the restricted
-// problem by branching on fractional LP solutions ("STARTING SAFE_MIP_SOL
-// via branching" is the code's own log message for this). This codebase
-// instead calls the RMP backend's own generic MIP engine (CPLEX's
+// Two REALIZATIONS of Sec. 4's idea are available, selected by
+// options.mip_certification_via_generic_solver:
+//
+// Default (false): restricted_branch_and_bound (defined just below) --
+// branches on fractional Ryan-Foster pairs over one persistent RMP built
+// once from the fixed populated pool, toggling columns in/out via their
+// upper bound (MasterRmp::set_pattern_eligible) instead of adding/removing
+// them, and never prices. This mirrors what legacy's code actually does:
+// it adds an "at most incumbent-1 columns" row to the
+// existing LP master, zeroes the bounds of every pre-populate column,
+// disables pricing, and lets its own already-running Ryan-Foster
+// branch-and-price tree resolve the restriction by branching ("STARTING
+// SAFE_MIP_SOL via branching" is the code's own log line for this) -- the
+// same persistent-master-plus-bound-toggling shape, not a per-node model
+// rebuild (an earlier version of this function did rebuild per node via
+// the ordinary column-generation driver; that measurably made the search
+// both far too slow and prone to crashing on real instances, see
+// docs/STATUS.md).
+//
+// Opt-in (true): calls the RMP backend's own generic MIP engine (CPLEX's
 // CPXmipopt or Gurobi's GRBoptimize on 0/1 columns) directly on the
-// populated pool -- same end result (a genuine, solver-certified
-// infeasibility proof or a strictly better solution), simpler to reason
-// about and backend-agnostic, but a different code path than legacy's
-// tree-reuse trick. Worth knowing if a future comparison against legacy's
-// own timing/behavior on this specific step looks different.
+// populated pool. Simpler and was measured fast, but its "infeasible"
+// verdict is only as trustworthy as that solver's own floating-point
+// branch-and-cut tolerances -- not independently rationally certified,
+// which is why this is opt-in rather than the default in a solver whose
+// whole point is a numerically exact certificate.
 //
 // Bounded to a handful of rounds (populate, then MIP-check, repeating only
 // if the MIP found a genuine improvement) rather than looping until
@@ -153,6 +166,115 @@ void populate_root_columns(const Instance& instance,
 // unreachable in a portable (no CPLEX, no Gurobi) build, since column
 // generation itself requires one of those backends there.
 #if defined(BPP_HAS_CPLEX) || defined(BPP_HAS_GUROBI)
+// One node of restricted_branch_and_bound's search: `master` already holds
+// every pattern in `patterns` (added once, outside this function) and
+// `eligible` reflects exactly which of them are usable at this node (an
+// ineligible pattern has its LP column upper-bounded to 0 via
+// MasterRmp::set_pattern_eligible, rather than being removed) -- so calling
+// master.solve_if_feasible() here re-solves the SAME persistent RMP,
+// warm-started from whatever basis the previous solve left behind, instead
+// of rebuilding a fresh model. No pricing ever runs: the pool is fixed and
+// it carries the historical sum(x) <= incumbent-1 row.  A feasible integral
+// leaf is therefore a better solution, while an infeasible LP fathoms its
+// subtree.  We intentionally do not build a SafeBound from this LP's item
+// duals: the extra cardinality row has its own dual multiplier, so ignoring
+// it would be an invalid certificate.
+//
+// An LP that comes back infeasible under this node's eligibility mask is
+// itself a conclusive result, not an error: Ryan-Foster branching on any
+// pair is a complete partition of every integer covering of the *fixed*
+// pool (see try_safe_mip_certification's doc comment for why the pool is
+// complete enough for this to be a valid proof either way), so "no feasible
+// restricted covering honors this branch's pairing" simply means this
+// subtree contributes nothing to beat the incumbent -- caught here instead
+// of propagating out of MasterRmp::solve() and aborting the whole search.
+//
+// Returns true iff this subtree was conclusively resolved (integral or
+// infeasible under this branching); false iff resolving it was inconclusive
+// (node budget exhausted), which the caller must NOT treat as a proof.
+bool restricted_branch_and_bound_node(const Instance& instance, MasterRmp& master,
+                                      const std::vector<Pattern>& patterns,
+                                      std::vector<bool>& eligible,
+                                      std::size_t& nodes_used, std::size_t max_nodes,
+                                      ColumnGenerationResult& result) {
+  if (nodes_used >= max_nodes) return false;
+  ++nodes_used;
+
+  if (!master.solve_if_feasible()) {
+    return true;  // Infeasible under this node's eligibility mask: nothing here to find.
+  }
+
+  const auto& column_values = master.primal_values();
+
+  const auto pair = select_fractional_pair(instance, patterns, column_values);
+  if (pair.first < 0) {
+    const auto improved = round_master_solution(instance, patterns, column_values);
+    if (improved.bin_count() >= result.incumbent_bins) {
+      throw std::logic_error("SAFE_MIP_SOL integral leaf did not improve the incumbent");
+    }
+    result.incumbent = improved;
+    result.incumbent_bins = improved.bin_count();
+    return true;
+  }
+
+  for (PairRelation relation : {PairRelation::Together, PairRelation::Different}) {
+    const RyanFosterConstraint constraint(pair.first, pair.second, relation);
+    std::vector<std::size_t> newly_ineligible;
+    for (std::size_t i = 0; i < patterns.size(); ++i) {
+      if (eligible[i] && !constraint.accepts(patterns[i])) {
+        newly_ineligible.push_back(i);
+        eligible[i] = false;
+      }
+    }
+    master.set_pattern_eligible(newly_ineligible, false);
+    const bool ok = restricted_branch_and_bound_node(instance, master, patterns, eligible,
+                                                      nodes_used, max_nodes, result);
+    master.set_pattern_eligible(newly_ineligible, true);
+    for (auto i : newly_ineligible) eligible[i] = true;
+    if (!ok) return false;
+  }
+  return true;
+}
+
+// Restricted (no-pricing) branch-and-bound over a fixed pool: the
+// realization of legacy's SAFE_MIP_SOL "via branching" mechanism
+// (DP_POP.cpp:910-1027, see try_safe_mip_certification's doc comment) that
+// this codebase uses by default. Builds ONE persistent MasterRmp from the
+// fixed pool, adds sum(x) <= incumbent-1, disables the pre-populate columns,
+// then
+// searches it with restricted_branch_and_bound_node -- mirroring legacy's
+// own persistent-master-plus-bound-toggling approach (rather than the
+// per-node full-rebuild this codebase's first attempt used) is what makes
+// this tractable on real instances.
+bool restricted_branch_and_bound(const Instance& instance, const ColumnGenerationOptions& base_options,
+                                 std::size_t first_populate_pattern, std::size_t max_nodes,
+                                 ColumnGenerationResult& result) {
+  MasterRmp master(base_options.backend, instance, base_options.sr3_cuts);
+  std::vector<Pattern> patterns;
+  patterns.reserve(base_options.warm_start_patterns.size());
+  for (const auto& seed : base_options.warm_start_patterns) {
+    Pattern candidate(instance, seed);
+    if (candidate.load() > instance.capacity()) continue;
+    master.add_pattern(candidate);
+    patterns.push_back(std::move(candidate));
+  }
+  if (patterns.empty()) return false;
+  if (first_populate_pattern >= patterns.size()) return false;
+
+  master.add_pattern_count_upper_bound(static_cast<std::size_t>(result.incumbent_bins - 1));
+  std::vector<std::size_t> pre_populate(first_populate_pattern);
+  std::iota(pre_populate.begin(), pre_populate.end(), std::size_t{0});
+  master.set_pattern_eligible(pre_populate, false);
+
+  std::vector<bool> eligible(patterns.size(), true);
+  for (auto index : pre_populate) eligible[index] = false;
+  std::size_t nodes_used = 0;
+  const bool resolved = restricted_branch_and_bound_node(instance, master, patterns, eligible,
+                                                          nodes_used, max_nodes, result);
+  result.safe_mip_nodes += nodes_used;
+  return resolved;
+}
+
 void try_safe_mip_certification(const Instance& instance, const ColumnGenerationOptions& options,
                                 ColumnGenerationResult& result) {
   if (!options.branching.constraints().empty()) return;
@@ -191,55 +313,93 @@ void try_safe_mip_certification(const Instance& instance, const ColumnGeneration
     // risk certifying on an incomplete search.
     if (!result.populate_complete) return;
 
-    std::optional<std::vector<std::size_t>> selection;
-    try {
-      const auto target = static_cast<std::size_t>(result.incumbent_bins) - 1;
-      if (options.backend == LpBackend::Cplex) {
-        CplexRmp mip(instance, result.active_sr3_cuts);
-        for (const auto& pattern : result.patterns.patterns()) mip.add_pattern(pattern);
-        selection = mip.solve_mip_at_most(target);
-      } else {
-        GurobiRmp mip(instance, result.active_sr3_cuts);
-        for (const auto& pattern : result.patterns.patterns()) mip.add_pattern(pattern);
-        selection = mip.solve_mip_at_most(target);
+    if (options.mip_certification_via_generic_solver) {
+      // Opt-in: hand the pool to the RMP backend's own generic MIP engine
+      // as a black box (see this function's doc comment for why this is
+      // not the default).
+      std::optional<std::vector<std::size_t>> selection;
+      try {
+        const auto target = static_cast<std::size_t>(result.incumbent_bins) - 1;
+        if (options.backend == LpBackend::Cplex) {
+          CplexRmp mip(instance, result.active_sr3_cuts);
+          for (const auto& pattern : result.patterns.patterns()) mip.add_pattern(pattern);
+          selection = mip.solve_mip_at_most(target);
+        } else {
+          GurobiRmp mip(instance, result.active_sr3_cuts);
+          for (const auto& pattern : result.patterns.patterns()) mip.add_pattern(pattern);
+          selection = mip.solve_mip_at_most(target);
+        }
+      } catch (const std::exception&) {
+        // The MIP's own time limit (solve_mip_at_most) was hit without a
+        // conclusive verdict: this pool/instance is not (yet) tractable
+        // this way. Give up on certification via this route rather than
+        // letting an inconclusive MIP status abort the whole solve -- the
+        // caller still has whatever LP-based bound/incumbent was already
+        // found.
+        return;
       }
-    } catch (const std::exception&) {
-      // The MIP's own time limit (solve_mip_at_most) was hit without a
-      // conclusive verdict: this pool/instance is not (yet) tractable this
-      // way. Give up on certification via this route rather than letting
-      // an inconclusive MIP status abort the whole solve -- the caller
-      // still has whatever LP-based bound/incumbent was already found.
+      if (!selection.has_value()) {
+        // Proven: no selection of the enumerated pool achieves fewer than
+        // incumbent_bins patterns -- and by populate_root_columns' own
+        // enumeration-completeness argument (every pattern whose reduced
+        // cost could matter is already in the pool), this proves
+        // incumbent_bins is the true optimum, independent of the LP bound.
+        result.safe_bound = SafeBound(result.incumbent_bins, 1);
+        result.safe_duals_feasible = true;
+        result.converged = true;
+        return;
+      }
+      // A covering (not partitioning) MIP can select overlapping patterns
+      // (an item covered twice); reuse round_master_solution's existing,
+      // already-tested x=1 selection/conflict handling (best-fit-decreasing
+      // on the residual) instead of assuming the raw selection is already a
+      // valid disjoint packing.
+      std::vector<double> selection_values(result.patterns.size(), 0.0);
+      for (auto index : *selection) selection_values[index] = 1.0;
+      const auto improved = round_master_solution(instance, result.patterns.patterns(), selection_values);
+      // solve_mip_at_most's own constraint guarantees |selection| <=
+      // incumbent_bins - 1, and round_master_solution never needs more bins
+      // than the patterns it was handed plus best-fit-decreasing leftovers,
+      // so this is expected to always improve; the explicit check is a
+      // defensive guard against that assumption, not the expected path.
+      if (improved.bin_count() < result.incumbent_bins) {
+        result.incumbent = improved;
+        result.incumbent_bins = improved.bin_count();
+        continue;  // Tighter target now available: try to certify or improve again.
+      }
       return;
     }
-    if (!selection.has_value()) {
-      // Proven: no selection of the enumerated pool achieves fewer than
-      // incumbent_bins patterns -- and by populate_root_columns' own
-      // enumeration-completeness argument (every pattern whose reduced
-      // cost could matter is already in the pool), this proves
-      // incumbent_bins is the true optimum, independent of the LP bound.
-      result.safe_bound = SafeBound(result.incumbent_bins, 1);
-      result.safe_duals_feasible = true;
-      result.converged = true;
-      return;
+
+    // Default: legacy SAFE_MIP_SOL, a no-pricing Ryan--Foster tree over the
+    // post-populate pool with the incumbent-1 cardinality row.
+    ColumnGenerationOptions bb_options = options;
+    bb_options.sr3_cuts = result.active_sr3_cuts;
+    bb_options.warm_start_patterns.clear();
+    bb_options.warm_start_patterns.reserve(result.patterns.size());
+    for (const auto& pattern : result.patterns.patterns()) {
+      bb_options.warm_start_patterns.push_back(pattern.items());
     }
-    // A covering (not partitioning) MIP can select overlapping patterns
-    // (an item covered twice); reuse round_master_solution's existing,
-    // already-tested x=1 selection/conflict handling (best-fit-decreasing
-    // on the residual) instead of assuming the raw selection is already a
-    // valid disjoint packing.
-    std::vector<double> selection_values(result.patterns.size(), 0.0);
-    for (auto index : *selection) selection_values[index] = 1.0;
-    const auto improved = round_master_solution(instance, result.patterns.patterns(), selection_values);
-    // solve_mip_at_most's own constraint guarantees |selection| <=
-    // incumbent_bins - 1, and round_master_solution never needs more bins
-    // than the patterns it was handed plus best-fit-decreasing leftovers,
-    // so this is expected to always improve; the explicit check is a
-    // defensive guard against that assumption, not the expected path.
-    if (improved.bin_count() < result.incumbent_bins) {
-      result.incumbent = improved;
-      result.incumbent_bins = improved.bin_count();
-      continue;  // Tighter target now available: try to certify or improve again.
+    const int incumbent_before = result.incumbent_bins;
+    // Bounded like the generic-solver route's own 20s internal time limit:
+    // a pathological instance must not be able to make this loop
+    // unboundedly expensive. Ryan-Foster branching always makes strict
+    // progress (a branched pair can never be fractional again in that
+    // subtree), so this is a safety cap, not expected to bind in practice
+    // on the modest pools (<=20000 columns) this is reached with.
+    constexpr std::size_t kMaxRestrictedNodes = 2000;
+    const bool resolved = restricted_branch_and_bound(
+        instance, bb_options, result.populate_first_pattern, kMaxRestrictedNodes, result);
+    if (!resolved) return;  // Inconclusive: keep whatever bound/incumbent already existed.
+    if (result.incumbent_bins < incumbent_before) {
+      continue;  // Found something strictly better: try to certify or improve again.
     }
+    // Fully resolved and nothing beat the incumbent: proven optimal, by the
+    // same enumeration-completeness argument as the generic-solver route
+    // (every pattern whose reduced cost could matter is already in the
+    // pool, courtesy of populate_root_columns).
+    result.safe_bound = SafeBound(result.incumbent_bins, 1);
+    result.safe_duals_feasible = true;
+    result.converged = true;
     return;
   }
 }

@@ -86,6 +86,18 @@ struct ColumnGenerationOptions {
   // itself with, and a superset of them is always in the pool once the
   // root has been solved once).
   std::vector<std::vector<int>> warm_start_patterns;
+  // try_safe_mip_certification's own certification mechanism, once the LP
+  // bound alone doesn't close the gap. Default (false): a restricted,
+  // no-pricing Ryan--Foster branch-and-bound over the post-populate pool:
+  // it adds sum(x) <= incumbent-1 and proves that restricted problem
+  // infeasible by exhaustive branching (see try_safe_mip_certification).
+  // True: the earlier,
+  // opt-in mechanism that hands the pool to the RMP backend's own generic
+  // MIP engine (CPXmipopt/GRBoptimize) as a black box; kept available
+  // since it is simpler and was measured fast, but its "infeasible"
+  // verdict is only as trustworthy as that solver's own floating-point
+  // branch-and-cut, not independently rationally certified.
+  bool mip_certification_via_generic_solver = false;
 };
 
 struct ColumnGenerationResult {
@@ -95,6 +107,13 @@ struct ColumnGenerationResult {
   std::size_t phase1_iterations = 0;
   std::size_t phase2_iterations = 0;
   std::size_t populate_columns = 0;
+  // Index of the first column added by the latest populate pass.  The
+  // historical SAFE_MIP_SOL disables every older column before it starts
+  // its fixed-pool Ryan--Foster tree (DP_POP.cpp:982-1027).
+  std::size_t populate_first_pattern = 0;
+  // Nodes visited by the legacy SAFE_MIP_SOL fixed-pool RF tree.  Zero means
+  // the standard root certificate closed first or the tree was not reached.
+  std::size_t safe_mip_nodes = 0;
   std::size_t sr3_cuts_added = 0;
   bool populate_complete = false;
   bool phase2_verified = false;

@@ -146,6 +146,8 @@ if(BPP_BUILD_TESTS)
 
   add_executable(bpp-integration-tests tests/test_integration.cpp)
   target_link_libraries(bpp-integration-tests PRIVATE bpp_core)
+  target_compile_definitions(bpp-integration-tests PRIVATE
+    BPP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME bpp-integration-tests COMMAND bpp-integration-tests)
 
   add_executable(bpp-regression-tests tests/test_regression.cpp)

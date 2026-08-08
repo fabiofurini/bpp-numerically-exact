@@ -123,11 +123,17 @@ void CplexRmp::add_cut(const Sr3Cut& cut, const std::vector<Pattern>& patterns) 
 }
 
 void CplexRmp::solve() {
+  if (!solve_if_feasible()) {
+    throw std::runtime_error("CPLEX RMP is infeasible");
+  }
+}
+
+bool CplexRmp::solve_if_feasible() {
   if (impl_->patterns == 0) throw std::logic_error("cannot solve an RMP without patterns");
   if (CPXlpopt(impl_->env, impl_->lp) != 0) throw std::runtime_error("CPLEX RMP solve failed");
-  int status = 0;
-  if (CPXgetstat(impl_->env, impl_->lp) != CPX_STAT_OPTIMAL) {
-    status = CPXgetstat(impl_->env, impl_->lp);
+  const int status = CPXgetstat(impl_->env, impl_->lp);
+  if (status == CPX_STAT_INFEASIBLE || status == CPX_STAT_INForUNBD) return false;
+  if (status != CPX_STAT_OPTIMAL) {
     throw std::runtime_error("CPLEX RMP did not reach optimality (status " + std::to_string(status) + ")");
   }
   std::vector<double> all_duals(impl_->duals.size() + impl_->sr3_duals.size(), 0.0);
@@ -142,6 +148,25 @@ void CplexRmp::solve() {
             impl_->duals.begin());
   std::copy(all_duals.begin() + static_cast<std::ptrdiff_t>(impl_->duals.size()), all_duals.end(),
             impl_->sr3_duals.begin());
+  return true;
+}
+
+void CplexRmp::add_pattern_count_upper_bound(std::size_t max_bins) {
+  if (impl_->patterns == 0) throw std::logic_error("cannot constrain an RMP without patterns");
+  const double rhs = static_cast<double>(max_bins);
+  const char sense = 'L';
+  if (CPXnewrows(impl_->env, impl_->lp, 1, &rhs, &sense, nullptr, nullptr) != 0) {
+    throw std::runtime_error("CPLEX SAFE_MIP_SOL bin-count row creation failed");
+  }
+  std::vector<int> columns(impl_->patterns);
+  std::vector<double> ones(impl_->patterns, 1.0);
+  for (std::size_t i = 0; i < impl_->patterns; ++i) columns[i] = static_cast<int>(i);
+  const int row = static_cast<int>(impl_->instance->item_count() + impl_->cuts.size());
+  std::vector<int> rows(impl_->patterns, row);
+  if (CPXchgcoeflist(impl_->env, impl_->lp, static_cast<int>(impl_->patterns), rows.data(),
+                     columns.data(), ones.data()) != 0) {
+    throw std::runtime_error("CPLEX SAFE_MIP_SOL bin-count coefficients failed");
+  }
 }
 
 std::optional<std::vector<std::size_t>> CplexRmp::solve_mip_at_most(std::size_t max_bins) {
@@ -193,6 +218,18 @@ std::optional<std::vector<std::size_t>> CplexRmp::solve_mip_at_most(std::size_t 
   return selected;
 }
 
+void CplexRmp::set_pattern_eligible(const std::vector<std::size_t>& indices, bool eligible) {
+  if (indices.empty()) return;
+  std::vector<int> columns(indices.size());
+  std::vector<char> bound_type(indices.size(), 'U');
+  std::vector<double> bound_value(indices.size(), eligible ? CPX_INFBOUND : 0.0);
+  for (std::size_t i = 0; i < indices.size(); ++i) columns[i] = static_cast<int>(indices[i]);
+  if (CPXchgbds(impl_->env, impl_->lp, static_cast<int>(columns.size()), columns.data(),
+               bound_type.data(), bound_value.data()) != 0) {
+    throw std::runtime_error("CPLEX pattern eligibility change failed");
+  }
+}
+
 double CplexRmp::objective_value() const noexcept { return impl_->objective; }
 const std::vector<double>& CplexRmp::duals() const noexcept { return impl_->duals; }
 const std::vector<double>& CplexRmp::sr3_duals() const noexcept { return impl_->sr3_duals; }
@@ -213,6 +250,8 @@ CplexRmp& CplexRmp::operator=(CplexRmp&&) noexcept = default;
 void CplexRmp::add_pattern(const Pattern&) { throw std::runtime_error("BPP was built without CPLEX"); }
 void CplexRmp::add_cut(const Sr3Cut&, const std::vector<Pattern>&) { throw std::runtime_error("BPP was built without CPLEX"); }
 void CplexRmp::solve() { throw std::runtime_error("BPP was built without CPLEX"); }
+bool CplexRmp::solve_if_feasible() { throw std::runtime_error("BPP was built without CPLEX"); }
+void CplexRmp::add_pattern_count_upper_bound(std::size_t) { throw std::runtime_error("BPP was built without CPLEX"); }
 double CplexRmp::objective_value() const noexcept { return 0.0; }
 const std::vector<double>& CplexRmp::duals() const noexcept { static const std::vector<double> empty; return empty; }
 const std::vector<double>& CplexRmp::sr3_duals() const noexcept { static const std::vector<double> empty; return empty; }
@@ -220,6 +259,9 @@ const std::vector<Sr3Cut>& CplexRmp::sr3_cuts() const noexcept { static const st
 const std::vector<double>& CplexRmp::primal_values() const noexcept { static const std::vector<double> empty; return empty; }
 std::size_t CplexRmp::pattern_count() const noexcept { return 0; }
 std::optional<std::vector<std::size_t>> CplexRmp::solve_mip_at_most(std::size_t) {
+  throw std::runtime_error("BPP was built without CPLEX");
+}
+void CplexRmp::set_pattern_eligible(const std::vector<std::size_t>&, bool) {
   throw std::runtime_error("BPP was built without CPLEX");
 }
 }  // namespace bpp

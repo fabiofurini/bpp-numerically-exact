@@ -27,6 +27,14 @@ void MasterRmp::solve() {
   std::visit([](auto& rmp) { rmp.solve(); }, backend_);
 }
 
+bool MasterRmp::solve_if_feasible() {
+  return std::visit([](auto& rmp) { return rmp.solve_if_feasible(); }, backend_);
+}
+
+void MasterRmp::add_pattern_count_upper_bound(std::size_t max_bins) {
+  std::visit([&](auto& rmp) { rmp.add_pattern_count_upper_bound(max_bins); }, backend_);
+}
+
 double MasterRmp::objective_value() const noexcept {
   return std::visit([](const auto& rmp) { return rmp.objective_value(); }, backend_);
 }
@@ -49,6 +57,10 @@ const std::vector<double>& MasterRmp::primal_values() const noexcept {
 
 std::size_t MasterRmp::pattern_count() const noexcept {
   return std::visit([](const auto& rmp) { return rmp.pattern_count(); }, backend_);
+}
+
+void MasterRmp::set_pattern_eligible(const std::vector<std::size_t>& indices, bool eligible) {
+  std::visit([&](auto& rmp) { rmp.set_pattern_eligible(indices, eligible); }, backend_);
 }
 
 }  // namespace bpp

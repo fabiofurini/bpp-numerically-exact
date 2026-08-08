@@ -36,12 +36,16 @@ class MasterRmp {
   void add_pattern(const Pattern& pattern);
   void add_cut(const Sr3Cut& cut, const std::vector<Pattern>& patterns);
   void solve();
+  bool solve_if_feasible();
+  void add_pattern_count_upper_bound(std::size_t max_bins);
   double objective_value() const noexcept;
   const std::vector<double>& duals() const noexcept;
   const std::vector<double>& sr3_duals() const noexcept;
   const std::vector<Sr3Cut>& sr3_cuts() const noexcept;
   const std::vector<double>& primal_values() const noexcept;
   std::size_t pattern_count() const noexcept;
+  // See CplexRmp::set_pattern_eligible / GurobiRmp::set_pattern_eligible.
+  void set_pattern_eligible(const std::vector<std::size_t>& indices, bool eligible);
 
  private:
   std::variant<CplexRmp, GurobiRmp> backend_;

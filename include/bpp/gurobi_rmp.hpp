@@ -32,6 +32,8 @@ class GurobiRmp {
   // called, so the new row's coefficients can be set for existing columns.
   void add_cut(const Sr3Cut& cut, const std::vector<Pattern>& patterns);
   void solve();
+  bool solve_if_feasible();
+  void add_pattern_count_upper_bound(std::size_t max_bins);
   double objective_value() const noexcept;
   const std::vector<double>& duals() const noexcept;
   const std::vector<double>& sr3_duals() const noexcept;
@@ -46,6 +48,12 @@ class GurobiRmp {
   // no such selection exists (a complete optimality proof for max_bins+1,
   // independent of the LP/dual bound).
   std::optional<std::vector<std::size_t>> solve_mip_at_most(std::size_t max_bins);
+
+  // Same contract as CplexRmp::set_pattern_eligible (see its doc comment):
+  // masks existing columns in/out via their upper bound instead of
+  // rebuilding the model, so a fixed-pool branch-and-bound can re-solve one
+  // persistent RMP per node.
+  void set_pattern_eligible(const std::vector<std::size_t>& indices, bool eligible);
 
  private:
   struct Impl;

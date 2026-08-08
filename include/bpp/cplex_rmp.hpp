@@ -30,6 +30,14 @@ class CplexRmp {
   // called, so the new row's coefficients can be set for existing columns.
   void add_cut(const Sr3Cut& cut, const std::vector<Pattern>& patterns);
   void solve();
+  // As solve(), but reports an infeasible LP as false.  SAFE_MIP_SOL uses
+  // infeasibility to fathom a Ryan--Foster node; operational failures still
+  // throw, so they can never be mistaken for a proof.
+  bool solve_if_feasible();
+  // Adds the historical SAFE_MIP_SOL row sum_p x_p <= max_bins to the
+  // current fixed pool.  It is deliberately an LP row: integrality is
+  // imposed by the Ryan--Foster tree, not by CPLEX's MIP engine.
+  void add_pattern_count_upper_bound(std::size_t max_bins);
   double objective_value() const noexcept;
   const std::vector<double>& duals() const noexcept;
   const std::vector<double>& sr3_duals() const noexcept;
@@ -54,6 +62,17 @@ class CplexRmp {
   // call) -- construct a fresh Rmp per attempt instead, exactly as
   // try_safe_mip_certification does.
   std::optional<std::vector<std::size_t>> solve_mip_at_most(std::size_t max_bins);
+
+  // Toggles a set of existing pattern columns in or out of the LP by their
+  // upper bound (0.0 when ineligible, unbounded when eligible again), rather
+  // than adding/removing columns. This is what lets restricted_branch_and_bound
+  // (column_generation.cpp) explore Ryan-Foster branches over a *fixed* pool
+  // by re-solving the SAME persistent RMP with different columns masked out,
+  // instead of rebuilding a fresh RMP (and re-adding every pattern) at every
+  // node -- the latter was measured to make a real branch-and-bound tree
+  // both far too slow and prone to crashing (see docs/STATUS.md). `indices`
+  // must reference columns already added via add_pattern.
+  void set_pattern_eligible(const std::vector<std::size_t>& indices, bool eligible);
 
  private:
   struct Impl;

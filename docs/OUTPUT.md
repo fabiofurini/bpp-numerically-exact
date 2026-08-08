@@ -51,6 +51,7 @@ phase1_iterations 394
 phase2_iterations 0
 populate_columns 0
 populate_complete 1
+safe_mip_nodes 0
 sr3_cuts 4
 sr3_cuts_added 4
 automatic_sr3 1
@@ -73,6 +74,7 @@ generated_columns 4264
 | `safe_duals_feasible` | Whether the exact certificate above is valid (should always be 1 on a successful run). |
 | `iterations` / `phase1_iterations` / `phase2_iterations` | Column-generation iteration counts (floating-phase vs. rational-phase). |
 | `populate_columns` / `populate_complete` | How many extra patterns `--populate` enumerated, and whether the enumeration finished (vs. was cut off by its own bounds). |
+| `safe_mip_nodes` | Nodes explored by the fixed-pool, no-pricing Ryan–Foster SAFE_MIP_SOL continuation after populate; 0 means this path was not needed. |
 | `sr3_cuts_added` | How many SR3 (triplet) cutting planes were separated. |
 | `solver` | Which floating-point LP backend actually ran (`cplex` or `gurobi`). |
 | `phase2_backend` | Which solver certified the safe phase (`soplex` in the numerically exact build). |

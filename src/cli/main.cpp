@@ -364,6 +364,7 @@ int main(int argc, char** argv) {
                 << "phase2_iterations " << result.phase2_iterations << '\n'
                 << "populate_columns " << result.populate_columns << '\n'
                 << "populate_complete " << (result.populate_complete ? 1 : 0) << '\n'
+                << "safe_mip_nodes " << result.safe_mip_nodes << '\n'
                 << "sr3_cuts " << result.active_sr3_cuts.size() << '\n'
                 << "sr3_cuts_added " << result.sr3_cuts_added << '\n'
                 << "automatic_sr3 " << ((!legacy_root) ? 1 : 0) << '\n'

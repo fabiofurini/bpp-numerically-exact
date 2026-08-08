@@ -133,10 +133,20 @@ void GurobiRmp::add_cut(const Sr3Cut& cut, const std::vector<Pattern>& patterns)
 }
 
 void GurobiRmp::solve() {
+  if (!solve_if_feasible()) {
+    throw std::runtime_error("Gurobi RMP is infeasible");
+  }
+}
+
+bool GurobiRmp::solve_if_feasible() {
   if (impl_->patterns == 0) throw std::logic_error("cannot solve an RMP without patterns");
   if (GRBoptimize(impl_->model) != 0) throw std::runtime_error("Gurobi RMP solve failed");
   int status = 0;
-  if (GRBgetintattr(impl_->model, GRB_INT_ATTR_STATUS, &status) != 0 || status != GRB_OPTIMAL) {
+  if (GRBgetintattr(impl_->model, GRB_INT_ATTR_STATUS, &status) != 0) {
+    throw std::runtime_error("Gurobi RMP status query failed");
+  }
+  if (status == GRB_INFEASIBLE || status == GRB_INF_OR_UNBD) return false;
+  if (status != GRB_OPTIMAL) {
     throw std::runtime_error("Gurobi RMP did not reach optimality (status " +
                              std::to_string(status) + ")");
   }
@@ -152,6 +162,19 @@ void GurobiRmp::solve() {
             impl_->duals.begin());
   std::copy(all_duals.begin() + static_cast<std::ptrdiff_t>(impl_->duals.size()), all_duals.end(),
             impl_->sr3_duals.begin());
+  return true;
+}
+
+void GurobiRmp::add_pattern_count_upper_bound(std::size_t max_bins) {
+  if (impl_->patterns == 0) throw std::logic_error("cannot constrain an RMP without patterns");
+  std::vector<int> columns(impl_->patterns);
+  std::vector<double> ones(impl_->patterns, 1.0);
+  for (std::size_t i = 0; i < impl_->patterns; ++i) columns[i] = static_cast<int>(i);
+  if (GRBaddconstr(impl_->model, static_cast<int>(impl_->patterns), columns.data(), ones.data(),
+                   GRB_LESS_EQUAL, static_cast<double>(max_bins), nullptr) != 0 ||
+      GRBupdatemodel(impl_->model) != 0) {
+    throw std::runtime_error("Gurobi SAFE_MIP_SOL bin-count row creation failed");
+  }
 }
 
 double GurobiRmp::objective_value() const noexcept { return impl_->objective; }
@@ -213,6 +236,19 @@ std::optional<std::vector<std::size_t>> GurobiRmp::solve_mip_at_most(std::size_t
   return selected;
 }
 
+void GurobiRmp::set_pattern_eligible(const std::vector<std::size_t>& indices, bool eligible) {
+  if (indices.empty()) return;
+  const double bound_value = eligible ? GRB_INFINITY : 0.0;
+  for (auto index : indices) {
+    if (GRBsetdblattrelement(impl_->model, GRB_DBL_ATTR_UB, static_cast<int>(index), bound_value) != 0) {
+      throw std::runtime_error("Gurobi pattern eligibility change failed");
+    }
+  }
+  if (GRBupdatemodel(impl_->model) != 0) {
+    throw std::runtime_error("Gurobi pattern eligibility commit failed");
+  }
+}
+
 }  // namespace bpp
 
 #else
@@ -226,6 +262,8 @@ GurobiRmp& GurobiRmp::operator=(GurobiRmp&&) noexcept = default;
 void GurobiRmp::add_pattern(const Pattern&) { throw std::runtime_error("BPP was built without Gurobi"); }
 void GurobiRmp::add_cut(const Sr3Cut&, const std::vector<Pattern>&) { throw std::runtime_error("BPP was built without Gurobi"); }
 void GurobiRmp::solve() { throw std::runtime_error("BPP was built without Gurobi"); }
+bool GurobiRmp::solve_if_feasible() { throw std::runtime_error("BPP was built without Gurobi"); }
+void GurobiRmp::add_pattern_count_upper_bound(std::size_t) { throw std::runtime_error("BPP was built without Gurobi"); }
 double GurobiRmp::objective_value() const noexcept { return 0.0; }
 const std::vector<double>& GurobiRmp::duals() const noexcept { static const std::vector<double> empty; return empty; }
 const std::vector<double>& GurobiRmp::sr3_duals() const noexcept { static const std::vector<double> empty; return empty; }
@@ -233,6 +271,9 @@ const std::vector<Sr3Cut>& GurobiRmp::sr3_cuts() const noexcept { static const s
 const std::vector<double>& GurobiRmp::primal_values() const noexcept { static const std::vector<double> empty; return empty; }
 std::size_t GurobiRmp::pattern_count() const noexcept { return 0; }
 std::optional<std::vector<std::size_t>> GurobiRmp::solve_mip_at_most(std::size_t) {
+  throw std::runtime_error("BPP was built without Gurobi");
+}
+void GurobiRmp::set_pattern_eligible(const std::vector<std::size_t>&, bool) {
   throw std::runtime_error("BPP was built without Gurobi");
 }
 }  // namespace bpp
