@@ -2,9 +2,13 @@
 
 [← Back to README](../README.md) · [← Usage](USAGE.md) · [Input format](INPUT.md)
 
-One `key value` pair per line on **stdout**, meant to be machine-parsed
-(see `scripts/run_ani_comparison.sh` for an example consumer). Diagnostics
-and errors go to **stderr**, never stdout.
+Everything a run produces is written to **one place**: `key value` pairs,
+one per line, on **stdout**. There are no auxiliary result files, no
+per-run logs, and no scattered output directories to track down — a
+caller that wants machine-readable results just captures stdout (see
+`scripts/run_ani_comparison.sh` for an example consumer). Diagnostics and
+errors go to **stderr**, never stdout, so the two never need separating
+after the fact.
 
 ## `--root-cg` / `--populate` example
 
