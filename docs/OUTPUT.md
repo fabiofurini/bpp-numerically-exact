@@ -10,7 +10,30 @@ caller that wants machine-readable results just captures stdout (see
 errors go to **stderr**, never stdout, so the two never need separating
 after the fact.
 
-## `--root-cg` / `--populate` example
+## No mode (greedy fallback) example
+
+The only mode that runs without a CPLEX- or Gurobi-enabled build, and the
+only one whose output isn't `key value` pairs — it's the actual solution.
+On the 5-item, capacity-10 instance from [Input format](INPUT.md):
+
+```
+$ bpp-solve instance.txt
+bins 2
+10: 0 2
+10: 1 3 4
+```
+
+| Line | Meaning |
+|---|---|
+| `bins N` | Number of bins the heuristic used — not certified optimal, just feasible. |
+| One line per bin | `<load>: <item indices>` — the total weight placed in that bin, then every item (by its 0-based index in the instance file) assigned to it. |
+
+## `--root-cg` / `--populate` / `--legacy-root-cg` / `--no-populate` example
+
+All four modes share this same field set (`--legacy-root-cg` and
+`--no-populate` are aliases for the same historical no-cuts, no-safe-phase
+path; `populate_columns`/`sr3_cuts_added` are simply 0 where the mode
+doesn't use them):
 
 ```
 $ bpp-solve instance.txt --root-cg
@@ -48,7 +71,7 @@ generated_columns 4264
 | `lower_bound_safe_ceil` | That bound rounded up — the true value only an integer solution could reach. |
 | `integer_optimum_certified` | **1** if `lower_bound_safe_ceil == incumbent`: the incumbent is *proven* optimal, not just the best one found. **0** otherwise — the incumbent may still be optimal, but this run did not prove it (try `--populate` or `--branch-price`). |
 | `safe_duals_feasible` | Whether the exact certificate above is valid (should always be 1 on a successful run). |
-| `iterations` / `phase1_iterations` / `phase2_iterations` | Column-generation iteration counts (floating-phase vs. rational-phase, see the paper's Algorithm 1). |
+| `iterations` / `phase1_iterations` / `phase2_iterations` | Column-generation iteration counts (floating-phase vs. rational-phase). |
 | `populate_columns` / `populate_complete` | How many extra patterns `--populate` enumerated, and whether the enumeration finished (vs. was cut off by its own bounds). |
 | `sr3_cuts_added` | How many SR3 (triplet) cutting planes were separated. |
 | `solver` | Which floating-point LP backend actually ran (`cplex` or `gurobi`). |
